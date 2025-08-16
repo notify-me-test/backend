@@ -15,7 +15,7 @@ class Product(models.Model):
     price = models.DecimalField(max_digits=10, decimal_places=2)
     category = models.ForeignKey(Category, on_delete=models.CASCADE)
     stock_quantity = models.IntegerField()
-    sku = models.CharField(max_length=100)
+    sku = models.CharField(max_length=100, unique=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -23,17 +23,24 @@ class Product(models.Model):
     def __str__(self):
         return self.name
     
-    def get_all_products(self):
-        return Product.objects.all()
-    
-    def get_products_by_category(self, category_id):
-        return Product.objects.filter(category_id=category_id)
-    
     def check_stock(self):
-        if self.stock_quantity > 0:
-            return True
-        else:
-            return False
+        """Check if product has stock available."""
+        return self.stock_quantity > 0
+    
+    def clean(self):
+        """Validate business rules."""
+        from django.core.exceptions import ValidationError
+        
+        if self.price < 0:
+            raise ValidationError("Price cannot be negative")
+        
+        if self.stock_quantity < 0:
+            raise ValidationError("Stock quantity cannot be negative")
+    
+    def save(self, *args, **kwargs):
+        """Override save to ensure validation."""
+        self.clean()
+        super().save(*args, **kwargs)
 
 class ProductImage(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
@@ -53,3 +60,15 @@ class ProductReview(models.Model):
     
     def __str__(self):
         return f"{self.product.name} - {self.rating} stars"
+    
+    def clean(self):
+        """Validate business rules."""
+        from django.core.exceptions import ValidationError
+        
+        if self.rating < 1 or self.rating > 5:
+            raise ValidationError("Rating must be between 1 and 5")
+    
+    def save(self, *args, **kwargs):
+        """Override save to ensure validation."""
+        self.clean()
+        super().save(*args, **kwargs)
