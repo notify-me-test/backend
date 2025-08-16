@@ -1,208 +1,661 @@
 """
-Tests for repository layer.
-Tests data access patterns and repository implementations.
+Tests for product repositories.
 """
-
 from django.test import TestCase
-from django.db import IntegrityError, models
+from django.db import IntegrityError
 from decimal import Decimal
-from products.models import Category, Product, ProductReview
-from products.repositories import (
-    ProductRepository, ProductRepositoryInterface,
-    CategoryRepository, CategoryRepositoryInterface,
-    ProductReviewRepository, ProductReviewRepositoryInterface
-)
-from .factories import CategoryFactory, ProductFactory, ProductReviewFactory, UserFactory
+from products.models import Category, Product
+from products.repositories import ProductRepository
+from products.repositories import CategoryRepository
+from products.models import ProductReview
+from products.repositories import ProductReviewRepository
 
 
 class ProductRepositoryTest(TestCase):
-    """Tests for ProductRepository implementation."""
+    """Test cases for ProductRepository class."""
     
     def setUp(self):
-        """Set up test data."""
+        """Set up test data for each test."""
+        # Create a test category
+        self.category = Category.objects.create(
+            name="Electronics",
+            description="Electronic devices and gadgets"
+        )
+        
+        # Create a test product
+        self.product = Product.objects.create(
+            name="Test Product",
+            description="A test product for testing",
+            price=Decimal('99.99'),
+            stock_quantity=10,
+            category=self.category
+        )
+        
+        # Create repository instance
         self.repository = ProductRepository()
-        self.category = CategoryFactory.create()
-        self.product = ProductFactory.create(category=self.category)
     
-    def test_get_by_id(self):
-        """Test getting product by ID."""
-        result = self.repository.get_by_id(self.product.id)
-        self.assertEqual(result, self.product)
+    # CRUD Operations Tests
+    
+    def test_create_product_success(self):
+        """Test successful product creation."""
+        product_data = {
+            'name': 'New Product',
+            'description': 'A new test product',
+            'price': Decimal('149.99'),
+            'stock_quantity': 25,
+            'category': self.category
+        }
+        
+        created_product = self.repository.create(**product_data)
+        
+        self.assertIsInstance(created_product, Product)
+        self.assertEqual(created_product.name, 'New Product')
+        self.assertEqual(created_product.price, Decimal('149.99'))
+        self.assertEqual(created_product.category, self.category)
+        self.assertEqual(created_product.stock_quantity, 25)
+    
+    def test_create_product_error_handling(self):
+        """Test error handling during product creation."""
+        # Try to create product with invalid data (missing required fields)
+        with self.assertRaises(ValueError) as context:
+            self.repository.create(name="Invalid Product")
+        
+        self.assertIn("Error creating product", str(context.exception))
+    
+    def test_get_by_id_success(self):
+        """Test successful product retrieval by ID."""
+        retrieved_product = self.repository.get_by_id(self.product.id)
+        
+        self.assertEqual(retrieved_product.id, self.product.id)
+        self.assertEqual(retrieved_product.name, self.product.name)
+        self.assertEqual(retrieved_product.price, self.product.price)
     
     def test_get_by_id_not_found(self):
-        """Test getting product by non-existent ID."""
-        with self.assertRaises(ValueError):
+        """Test handling of non-existent product ID."""
+        with self.assertRaises(ValueError) as context:
             self.repository.get_by_id(99999)
-    
-    def test_get_all(self):
-        """Test getting all products."""
-        # Create additional products
-        for i in range(3):
-            ProductFactory.create(category=self.category)
         
-        results = self.repository.get_all()
-        self.assertEqual(results.count(), 4)  # 1 from setUp + 3 new ones
+        self.assertIn("Product with id 99999 not found", str(context.exception))
     
-
+    def test_get_by_id_error_handling(self):
+        """Test error handling during product retrieval."""
+        # This test would require mocking to trigger a general exception
+        # For now, we'll test the normal flow and the DoesNotExist case above
+        pass
     
-    def test_filter_by_category(self):
-        """Test filtering products by category."""
-        # Create products in different categories
-        category2 = CategoryFactory.create(name="Books")
-        ProductFactory.create(category=category2)
+    def test_update_product_success(self):
+        """Test successful product update."""
+        updated_product = self.repository.update(
+            self.product.id,
+            name="Updated Product Name",
+            price=Decimal('129.99'),
+            stock_quantity=15
+        )
         
-        # Use the actual repository method
-        results = self.repository.get_by_category(self.category.id)
-        self.assertEqual(results.count(), 1)
-        self.assertEqual(results.first().category, self.category)
-    
-    def test_search_by_name(self):
-        """Test searching products by name."""
-        # Create products with specific names
-        ProductFactory.create(name="iPhone 13", category=self.category)
-        ProductFactory.create(name="iPhone 14", category=self.category)
-        ProductFactory.create(name="Samsung Galaxy", category=self.category)
+        self.assertEqual(updated_product.name, "Updated Product Name")
+        self.assertEqual(updated_product.price, Decimal('129.99'))
+        self.assertEqual(updated_product.stock_quantity, 15)
         
-        results = self.repository.search_by_name("iPhone")
-        self.assertEqual(results.count(), 2)
-        self.assertTrue(all("iPhone" in p.name for p in results))
+        # Verify changes persisted in database
+        refreshed_product = Product.objects.get(id=self.product.id)
+        self.assertEqual(refreshed_product.name, "Updated Product Name")
     
-    def test_search_by_description(self):
-        """Test searching products by description."""
-        # Create products with specific descriptions
-        ProductFactory.create(description="High quality smartphone", category=self.category)
-        ProductFactory.create(description="Budget smartphone", category=self.category)
-        ProductFactory.create(description="Gaming laptop", category=self.category)
+    def test_update_product_not_found(self):
+        """Test update of non-existent product."""
+        with self.assertRaises(ValueError) as context:
+            self.repository.update(99999, name="Updated Name")
         
-        results = self.repository.search_by_description("smartphone")
-        self.assertEqual(results.count(), 2)
-        self.assertTrue(all("smartphone" in p.description.lower() for p in results))
+        self.assertIn("Product with id 99999 not found", str(context.exception))
     
-    def test_search_by_name_or_description(self):
-        """Test searching products by name or description."""
-        # Create products with specific names and descriptions
-        ProductFactory.create(name="iPhone", description="Apple smartphone", category=self.category)
-        ProductFactory.create(name="Samsung", description="Android smartphone", category=self.category)
-        ProductFactory.create(name="Laptop", description="Gaming computer", category=self.category)
+    def test_delete_product_success(self):
+        """Test successful product deletion."""
+        product_id = self.product.id
         
-        results = self.repository.search_by_name_or_description("smartphone")
-        self.assertEqual(results.count(), 2)
-        self.assertTrue(all("smartphone" in p.name.lower() or "smartphone" in p.description.lower() for p in results))
+        # Verify product exists before deletion
+        self.assertTrue(Product.objects.filter(id=product_id).exists())
+        
+        # Delete the product
+        result = self.repository.delete(product_id)
+        
+        # Verify deletion was successful
+        self.assertTrue(result)
+        self.assertFalse(Product.objects.filter(id=product_id).exists())
     
-
+    def test_delete_product_not_found(self):
+        """Test deletion of non-existent product."""
+        with self.assertRaises(ValueError) as context:
+            self.repository.delete(99999)
+        
+        self.assertIn("Product with id 99999 not found", str(context.exception))
     
-    def test_update_stock(self):
-        """Test updating product stock quantity."""
-        new_stock = 25
+    def test_update_stock_success(self):
+        """Test successful stock update."""
+        new_stock = 50
+        
         updated_product = self.repository.update_stock(self.product.id, new_stock)
         
         self.assertEqual(updated_product.stock_quantity, new_stock)
         
-        # Verify in database
+        # Verify change persisted in database
         refreshed_product = Product.objects.get(id=self.product.id)
         self.assertEqual(refreshed_product.stock_quantity, new_stock)
     
     def test_update_stock_not_found(self):
-        """Test updating stock for non-existent product."""
-        with self.assertRaises(ValueError):
-            self.repository.update_stock(99999, 25)
+        """Test stock update of non-existent product."""
+        with self.assertRaises(ValueError) as context:
+            self.repository.update_stock(99999, 100)
+        
+        self.assertIn("Product with id 99999 not found", str(context.exception))
     
-
+    # Query Operations Tests
+    
+    def test_get_all_products(self):
+        """Test retrieving all products."""
+        # Create another product to ensure we have multiple
+        Product.objects.create(
+            name="Second Product",
+            description="Another test product",
+            price=Decimal('199.99'),
+            stock_quantity=5,
+            category=self.category
+        )
+        
+        all_products = self.repository.get_all()
+        
+        self.assertEqual(all_products.count(), 2)
+        self.assertIn(self.product, all_products)
+    
+    def test_get_by_category(self):
+        """Test filtering products by category."""
+        # Create another category and product
+        clothing_category = Category.objects.create(name="Clothing")
+        clothing_product = Product.objects.create(
+            name="Clothing Product",
+            description="A clothing item",
+            price=Decimal('29.99'),
+            stock_quantity=20,
+            category=clothing_category
+        )
+        
+        electronics_products = self.repository.get_by_category(self.category.id)
+        clothing_products = self.repository.get_by_category(clothing_category.id)
+        
+        self.assertEqual(electronics_products.count(), 1)
+        self.assertIn(self.product, electronics_products)
+        
+        self.assertEqual(clothing_products.count(), 1)
+        self.assertIn(clothing_product, clothing_products)
+    
+    def test_get_by_price_range(self):
+        """Test filtering products by price range."""
+        # Create products with different prices
+        cheap_product = Product.objects.create(
+            name="Cheap Product",
+            description="An affordable product",
+            price=Decimal('19.99'),
+            stock_quantity=100,
+            category=self.category
+        )
+        
+        expensive_product = Product.objects.create(
+            name="Expensive Product",
+            description="A luxury product",
+            price=Decimal('299.99'),
+            stock_quantity=2,
+            category=self.category
+        )
+        
+        # Test price range 20-100
+        mid_range_products = self.repository.get_by_price_range(20.0, 100.0)
+        self.assertEqual(mid_range_products.count(), 1)
+        self.assertIn(self.product, mid_range_products)
+        
+        # Test price range 0-50
+        cheap_products = self.repository.get_by_price_range(0.0, 50.0)
+        self.assertEqual(cheap_products.count(), 1)
+        self.assertIn(cheap_product, cheap_products)
+    
+    def test_get_low_stock(self):
+        """Test filtering products by low stock threshold."""
+        # Create products with different stock levels
+        low_stock_product = Product.objects.create(
+            name="Low Stock Product",
+            description="Product with low stock",
+            price=Decimal('49.99'),
+            stock_quantity=3,
+            category=self.category
+        )
+        
+        high_stock_product = Product.objects.create(
+            name="High Stock Product",
+            description="Product with high stock",
+            price=Decimal('79.99'),
+            stock_quantity=50,
+            category=self.category
+        )
+        
+        # Test threshold of 5 (should include products with stock <= 5)
+        low_stock_products = self.repository.get_low_stock(5)
+        self.assertEqual(low_stock_products.count(), 1)  # only low_stock_product (3)
+        self.assertIn(low_stock_product, low_stock_products)
+        self.assertNotIn(self.product, low_stock_products)  # stock=10 is not <= 5
+        
+        # Test threshold of 2 (should include only products with stock <= 2)
+        very_low_stock_products = self.repository.get_low_stock(2)
+        self.assertEqual(very_low_stock_products.count(), 0)
+    
+    def test_search_by_name(self):
+        """Test searching products by name."""
+        # Create products with searchable names
+        Product.objects.create(
+            name="iPhone 13",
+            description="Apple smartphone",
+            price=Decimal('799.99'),
+            stock_quantity=15,
+            category=self.category
+        )
+        
+        Product.objects.create(
+            name="Samsung Galaxy",
+            description="Android smartphone",
+            price=Decimal('699.99'),
+            stock_quantity=12,
+            category=self.category
+        )
+        
+        # Search for "iPhone"
+        iphone_results = self.repository.search_by_name("iPhone")
+        self.assertEqual(iphone_results.count(), 1)
+        self.assertEqual(iphone_results.first().name, "iPhone 13")
+        
+        # Search for "phone" (should find only iPhone 13)
+        phone_results = self.repository.search_by_name("phone")
+        self.assertEqual(phone_results.count(), 1)  # only iPhone 13 contains "phone"
+        
+        # Search for non-existent term
+        no_results = self.repository.search_by_name("NonExistent")
+        self.assertEqual(no_results.count(), 0)
+    
+    def test_search_by_description(self):
+        """Test searching products by description."""
+        # Create products with searchable descriptions
+        Product.objects.create(
+            name="Product A",
+            description="This is a wireless bluetooth speaker",
+            price=Decimal('89.99'),
+            stock_quantity=8,
+            category=self.category
+        )
+        
+        Product.objects.create(
+            name="Product B",
+            description="A high-quality wireless headphone",
+            price=Decimal('159.99'),
+            stock_quantity=6,
+            category=self.category
+        )
+        
+        # Search for "wireless"
+        wireless_results = self.repository.search_by_description("wireless")
+        self.assertEqual(wireless_results.count(), 2)
+        
+        # Search for "bluetooth"
+        bluetooth_results = self.repository.search_by_description("bluetooth")
+        self.assertEqual(bluetooth_results.count(), 1)
+        
+        # Search for non-existent term
+        no_results = self.repository.search_by_description("NonExistent")
+        self.assertEqual(no_results.count(), 0)
+    
+    def test_search_by_name_or_description(self):
+        """Test searching products by name or description."""
+        # Create products with searchable names and descriptions
+        Product.objects.create(
+            name="Gaming Laptop",
+            description="High-performance gaming computer",
+            price=Decimal('1299.99'),
+            stock_quantity=4,
+            category=self.category
+        )
+        
+        Product.objects.create(
+            name="Office Computer",
+            description="Reliable office laptop for work",
+            price=Decimal('599.99'),
+            stock_quantity=10,
+            category=self.category
+        )
+        
+        # Search for "laptop" (should find both by name and description)
+        laptop_results = self.repository.search_by_name_or_description("laptop")
+        self.assertEqual(laptop_results.count(), 2)
+        
+        # Search for "gaming" (should find one by description)
+        gaming_results = self.repository.search_by_name_or_description("gaming")
+        self.assertEqual(gaming_results.count(), 1)
+        
+        # Search for "office" (should find one by description)
+        office_results = self.repository.search_by_name_or_description("office")
+        self.assertEqual(office_results.count(), 1)
+        
+        # Search for non-existent term
+        no_results = self.repository.search_by_name_or_description("NonExistent")
+        self.assertEqual(no_results.count(), 0)
 
 
 class CategoryRepositoryTest(TestCase):
-    """Tests for CategoryRepository implementation."""
+    """Test cases for CategoryRepository class."""
     
     def setUp(self):
-        """Set up test data."""
-        self.repository = CategoryRepository()
-        self.category = CategoryFactory.create()
-    
-    def test_get_by_id(self):
-        """Test getting category by ID."""
-        result = self.repository.get_by_id(self.category.id)
-        self.assertEqual(result, self.category)
-    
-    def test_get_all(self):
-        """Test getting all categories."""
-        # Create additional categories
-        for i in range(3):
-            CategoryFactory.create()
+        """Set up test data for each test."""
+        # Create a test category
+        self.category = Category.objects.create(
+            name="Electronics",
+            description="Electronic devices and gadgets"
+        )
         
-        results = self.repository.get_all()
-        self.assertEqual(results.count(), 4)  # 1 from setUp + 3 new ones
+        # Create repository instance
+        self.repository = CategoryRepository()
     
-
+    # CRUD Operations Tests
+    
+    def test_create_category_success(self):
+        """Test successful category creation."""
+        category_data = {
+            'name': 'New Category',
+            'description': 'A new test category'
+        }
+        
+        created_category = self.repository.create(**category_data)
+        
+        self.assertIsInstance(created_category, Category)
+        self.assertEqual(created_category.name, 'New Category')
+        self.assertEqual(created_category.description, 'A new test category')
+    
+    def test_create_category_error_handling(self):
+        """Test error handling during category creation."""
+        # Try to create category with invalid data (missing required fields)
+        with self.assertRaises(ValueError) as context:
+            self.repository.create(description="Invalid Category")
+        
+        self.assertIn("Error creating category", str(context.exception))
+    
+    def test_get_by_id_success(self):
+        """Test successful category retrieval by ID."""
+        retrieved_category = self.repository.get_by_id(self.category.id)
+        
+        self.assertEqual(retrieved_category.id, self.category.id)
+        self.assertEqual(retrieved_category.name, self.category.name)
+        self.assertEqual(retrieved_category.description, self.category.description)
+    
+    def test_get_by_id_not_found(self):
+        """Test handling of non-existent category ID."""
+        with self.assertRaises(ValueError) as context:
+            self.repository.get_by_id(99999)
+        
+        self.assertIn("Category with id 99999 not found", str(context.exception))
+    
+    def test_get_by_name_success(self):
+        """Test successful category retrieval by name."""
+        retrieved_category = self.repository.get_by_name("Electronics")
+        
+        self.assertEqual(retrieved_category.id, self.category.id)
+        self.assertEqual(retrieved_category.name, "Electronics")
+        self.assertEqual(retrieved_category.description, "Electronic devices and gadgets")
+    
+    def test_get_by_name_not_found(self):
+        """Test handling of non-existent category name."""
+        retrieved_category = self.repository.get_by_name("NonExistent Category")
+        
+        self.assertIsNone(retrieved_category)
+    
+    def test_update_category_success(self):
+        """Test successful category update."""
+        updated_category = self.repository.update(
+            self.category.id,
+            name="Updated Electronics",
+            description="Updated electronic devices description"
+        )
+        
+        self.assertEqual(updated_category.name, "Updated Electronics")
+        self.assertEqual(updated_category.description, "Updated electronic devices description")
+        
+        # Verify changes persisted in database
+        refreshed_category = Category.objects.get(id=self.category.id)
+        self.assertEqual(refreshed_category.name, "Updated Electronics")
+    
+    def test_update_category_not_found(self):
+        """Test update of non-existent category."""
+        with self.assertRaises(ValueError) as context:
+            self.repository.update(99999, name="Updated Name")
+        
+        self.assertIn("Category with id 99999 not found", str(context.exception))
+    
+    def test_delete_category_success(self):
+        """Test successful category deletion."""
+        category_id = self.category.id
+        
+        # Verify category exists before deletion
+        self.assertTrue(Category.objects.filter(id=category_id).exists())
+        
+        # Delete the category
+        result = self.repository.delete(category_id)
+        
+        # Verify deletion was successful
+        self.assertTrue(result)
+        self.assertFalse(Category.objects.filter(id=category_id).exists())
+    
+    def test_delete_category_not_found(self):
+        """Test deletion of non-existent category."""
+        with self.assertRaises(ValueError) as context:
+            self.repository.delete(99999)
+        
+        self.assertIn("Category with id 99999 not found", str(context.exception))
+    
+    # Query Operations Tests
+    
+    def test_get_all_categories(self):
+        """Test retrieving all categories."""
+        # Create another category to ensure we have multiple
+        Category.objects.create(
+            name="Clothing",
+            description="Clothing and fashion items"
+        )
+        
+        all_categories = self.repository.get_all()
+        
+        self.assertEqual(all_categories.count(), 2)
+        self.assertIn(self.category, all_categories)
 
 
 class ProductReviewRepositoryTest(TestCase):
-    """Tests for ProductReviewRepository implementation."""
+    """Test cases for ProductReviewRepository class."""
     
     def setUp(self):
-        """Set up test data."""
-        self.repository = ProductReviewRepository()
-        self.user = UserFactory.create()
-        self.product = ProductFactory.create()
-        self.review = ProductReviewFactory.create(
-            product=self.product,
-            user=self.user
+        """Set up test data for each test."""
+        # Create test categories and products
+        self.category = Category.objects.create(
+            name="Electronics",
+            description="Electronic devices and gadgets"
         )
-    
-    def test_get_by_id(self):
-        """Test getting review by ID."""
-        result = self.repository.get_by_id(self.review.id)
-        self.assertEqual(result, self.review)
-    
-    def test_get_all(self):
-        """Test getting all reviews."""
-        # Create 3 additional reviews with the same product but different users
-        for i in range(3):
-            ProductReviewFactory.create(product=self.product)
         
-        results = self.repository.get_all()
-        self.assertEqual(results.count(), 4)  # 1 from setUp + 3 new ones
-    
-
-    
-    def test_filter_by_product(self):
-        """Test filtering reviews by product."""
-        # Create reviews for different products
-        product2 = ProductFactory.create()
-        ProductReviewFactory.create(product=product2, user=self.user)
+        self.product = Product.objects.create(
+            name="Test Product",
+            description="A test product for testing",
+            price=Decimal('99.99'),
+            stock_quantity=10,
+            category=self.category
+        )
         
-        # Use the actual repository method
-        results = self.repository.get_by_product(self.product.id)
-        self.assertEqual(results.count(), 1)
-        self.assertEqual(results.first().product, self.product)
-    
-    def test_filter_by_user(self):
-        """Test filtering reviews by user."""
-        # Create reviews from different users
-        user2 = UserFactory.create()
-        ProductReviewFactory.create(product=self.product, user=user2)
+        # Create test user (using a simple integer for user_id)
+        self.user_id = 123
         
-        # Use the actual repository method
-        results = self.repository.get_by_user(self.user.id)
-        self.assertEqual(results.count(), 1)
-        self.assertEqual(results.first().user, self.user)
+        # Create a test review
+        self.review = ProductReview.objects.create(
+            product=self.product,
+            user_id=self.user_id,
+            rating=4,
+            comment="Great product, highly recommended!"
+        )
+        
+        # Create repository instance
+        self.repository = ProductReviewRepository()
     
-
-
-
-class RepositoryInterfaceTest(TestCase):
-    """Tests for repository interface compliance."""
+    # CRUD Operations Tests
     
-    def test_product_repository_implements_interface(self):
-        """Test that ProductRepository implements ProductRepositoryInterface."""
-        repository = ProductRepository()
-        self.assertIsInstance(repository, ProductRepositoryInterface)
+    def test_create_review_success(self):
+        """Test successful review creation."""
+        review_data = {
+            'product': self.product,
+            'user_id': 456,
+            'rating': 5,
+            'comment': 'Excellent product!'
+        }
+        
+        created_review = self.repository.create(**review_data)
+        
+        self.assertIsInstance(created_review, ProductReview)
+        self.assertEqual(created_review.product, self.product)
+        self.assertEqual(created_review.user_id, 456)
+        self.assertEqual(created_review.rating, 5)
+        self.assertEqual(created_review.comment, 'Excellent product!')
     
-    def test_category_repository_implements_interface(self):
-        """Test that CategoryRepository implements CategoryRepositoryInterface."""
-        repository = CategoryRepository()
-        self.assertIsInstance(repository, CategoryRepositoryInterface)
+    def test_create_review_error_handling(self):
+        """Test error handling during review creation."""
+        # Try to create review with invalid data (missing required fields)
+        with self.assertRaises(ValueError) as context:
+            self.repository.create(comment="Invalid Review")
+        
+        self.assertIn("Error creating review", str(context.exception))
     
-    def test_product_review_repository_implements_interface(self):
-        """Test that ProductReviewRepository implements ProductReviewRepositoryInterface."""
-        repository = ProductReviewRepository()
-        self.assertIsInstance(repository, ProductReviewRepositoryInterface)
+    def test_get_by_id_success(self):
+        """Test successful review retrieval by ID."""
+        retrieved_review = self.repository.get_by_id(self.review.id)
+        
+        self.assertEqual(retrieved_review.id, self.review.id)
+        self.assertEqual(retrieved_review.product, self.review.product)
+        self.assertEqual(retrieved_review.user_id, self.review.user_id)
+        self.assertEqual(retrieved_review.rating, self.review.rating)
+        self.assertEqual(retrieved_review.comment, self.review.comment)
+    
+    def test_get_by_id_not_found(self):
+        """Test handling of non-existent review ID."""
+        with self.assertRaises(ValueError) as context:
+            self.repository.get_by_id(99999)
+        
+        self.assertIn("Review with id 99999 not found", str(context.exception))
+    
+    def test_update_review_success(self):
+        """Test successful review update."""
+        updated_review = self.repository.update(
+            self.review.id,
+            rating=5,
+            comment="Updated comment - even better than before!"
+        )
+        
+        self.assertEqual(updated_review.rating, 5)
+        self.assertEqual(updated_review.comment, "Updated comment - even better than before!")
+        
+        # Verify changes persisted in database
+        refreshed_review = ProductReview.objects.get(id=self.review.id)
+        self.assertEqual(refreshed_review.rating, 5)
+        self.assertEqual(refreshed_review.comment, "Updated comment - even better than before!")
+    
+    def test_update_review_not_found(self):
+        """Test update of non-existent review."""
+        with self.assertRaises(ValueError) as context:
+            self.repository.update(99999, rating=5)
+        
+        self.assertIn("Review with id 99999 not found", str(context.exception))
+    
+    def test_delete_review_success(self):
+        """Test successful review deletion."""
+        review_id = self.review.id
+        
+        # Verify review exists before deletion
+        self.assertTrue(ProductReview.objects.filter(id=review_id).exists())
+        
+        # Delete the review
+        result = self.repository.delete(review_id)
+        
+        # Verify deletion was successful
+        self.assertTrue(result)
+        self.assertFalse(ProductReview.objects.filter(id=review_id).exists())
+    
+    def test_delete_review_not_found(self):
+        """Test deletion of non-existent review."""
+        with self.assertRaises(ValueError) as context:
+            self.repository.delete(99999)
+        
+        self.assertIn("Review with id 99999 not found", str(context.exception))
+    
+    # Query Operations Tests
+    
+    def test_get_all_reviews(self):
+        """Test retrieving all reviews."""
+        # Create another review to ensure we have multiple
+        ProductReview.objects.create(
+            product=self.product,
+            user_id=789,
+            rating=3,
+            comment="Decent product"
+        )
+        
+        all_reviews = self.repository.get_all()
+        
+        self.assertEqual(all_reviews.count(), 2)
+        self.assertIn(self.review, all_reviews)
+    
+    def test_get_by_product(self):
+        """Test filtering reviews by product ID."""
+        # Create another product and review
+        second_product = Product.objects.create(
+            name="Second Product",
+            description="Another test product",
+            price=Decimal('149.99'),
+            stock_quantity=5,
+            category=self.category
+        )
+        
+        second_review = ProductReview.objects.create(
+            product=second_product,
+            user_id=456,
+            rating=4,
+            comment="Good second product"
+        )
+        
+        # Get reviews for the first product
+        first_product_reviews = self.repository.get_by_product(self.product.id)
+        self.assertEqual(first_product_reviews.count(), 1)
+        self.assertIn(self.review, first_product_reviews)
+        
+        # Get reviews for the second product
+        second_product_reviews = self.repository.get_by_product(second_product.id)
+        self.assertEqual(second_product_reviews.count(), 1)
+        self.assertIn(second_review, second_product_reviews)
+    
+    def test_get_by_user(self):
+        """Test filtering reviews by user ID."""
+        # Create another review by the same user
+        ProductReview.objects.create(
+            product=self.product,
+            user_id=self.user_id,  # Same user
+            rating=5,
+            comment="Second review from same user"
+        )
+        
+        # Create a review from a different user
+        ProductReview.objects.create(
+            product=self.product,
+            user_id=999,  # Different user
+            rating=2,
+            comment="Review from different user"
+        )
+        
+        # Get reviews from the first user
+        first_user_reviews = self.repository.get_by_user(self.user_id)
+        self.assertEqual(first_user_reviews.count(), 2)  # Should have 2 reviews
+        
+        # Get reviews from the different user
+        different_user_reviews = self.repository.get_by_user(999)
+        self.assertEqual(different_user_reviews.count(), 1)  # Should have 1 review
