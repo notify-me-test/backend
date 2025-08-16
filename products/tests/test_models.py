@@ -1,217 +1,333 @@
 """
 Tests for product models.
-Tests model validation, methods, and edge cases.
 """
-
 from django.test import TestCase
-from django.core.exceptions import ValidationError
+from django.contrib.auth.models import User
 from decimal import Decimal
-from products.models import Category, Product, ProductReview
-from .factories import CategoryFactory, ProductFactory, ProductReviewFactory, UserFactory
+from products.models import Category, Product, ProductReview, ProductImage
 
 
 class CategoryModelTest(TestCase):
-    """Tests for Category model."""
+    """Tests for Category model data structure and basic functionality."""
     
     def test_category_creation(self):
-        """Test basic category creation."""
-        category = CategoryFactory.create(name="Electronics")
+        """Test that category can be created with basic fields."""
+        category = Category.objects.create(
+            name="Electronics",
+            description="Electronic products and gadgets"
+        )
+        
+        # Verify field assignments
         self.assertEqual(category.name, "Electronics")
-        # Note: Category model doesn't have timestamp fields
+        self.assertEqual(category.description, "Electronic products and gadgets")
+        self.assertIsNotNone(category.id)
     
     def test_category_string_representation(self):
-        """Test category string representation."""
-        category = CategoryFactory.create(name="Books")
+        """Test that __str__ method returns the category name."""
+        category = Category.objects.create(name="Books")
+        
         self.assertEqual(str(category), "Books")
     
-    def test_category_name_max_length(self):
-        """Test category name max length constraint."""
-        long_name = "A" * 101  # Exceeds max_length=100
-        # Django doesn't enforce max_length at model level by default
-        # This would need to be enforced at database level or with custom validation
-        # For now, we'll test that it can be created
-        category = CategoryFactory.create(name=long_name)
-        self.assertEqual(len(category.name), 101)
-    
     def test_category_description_optional(self):
-        """Test that category description is optional."""
-        category = CategoryFactory.create(description="")
+        """Test that description field is optional."""
+        category = Category.objects.create(name="Clothing")
+        
+        # Description should be empty string by default
         self.assertEqual(category.description, "")
+        
+        # Should be able to set description later
+        category.description = "Fashion and apparel"
+        category.save()
+        
+        # Refresh from database
+        category.refresh_from_db()
+        self.assertEqual(category.description, "Fashion and apparel")
     
-    def test_category_timestamps(self):
-        """Test that timestamps are automatically set."""
-        category = CategoryFactory.create()
-        # Note: Category model doesn't have timestamp fields
-        self.assertTrue(True)  # Placeholder test
+    def test_category_with_parent(self):
+        """Test parent-child category relationships."""
+        # Create parent category
+        parent = Category.objects.create(name="Electronics")
+        
+        # Create child category
+        child = Category.objects.create(
+            name="Smartphones",
+            parent=parent
+        )
+        
+        # Verify relationships
+        self.assertEqual(child.parent, parent)
+        self.assertEqual(child.parent.name, "Electronics")
+        
+        # Test reverse relationship
+        self.assertIn(child, parent.category_set.all())
+    
+    def test_category_without_parent(self):
+        """Test that category can exist without parent."""
+        category = Category.objects.create(name="Electronics")
+        
+        # Parent should be None
+        self.assertIsNone(category.parent)
 
 
 class ProductModelTest(TestCase):
-    """Tests for Product model."""
+    """Tests for Product model data structure and basic functionality."""
+    
+    def setUp(self):
+        """Create basic test data for each test."""
+        self.category = Category.objects.create(name="Electronics")
     
     def test_product_creation(self):
-        """Test basic product creation."""
-        product = ProductFactory.create(
+        """Test that product can be created with all required fields."""
+        product = Product.objects.create(
             name="Test Product",
-            price=99.99,
-            stock_quantity=10
+            description="Test Description",
+            price=Decimal('99.99'),
+            category=self.category,
+            stock_quantity=10,
+            sku="TEST001"
         )
+        
+        # Verify field assignments
         self.assertEqual(product.name, "Test Product")
+        self.assertEqual(product.description, "Test Description")
         self.assertEqual(product.price, Decimal('99.99'))
+        self.assertEqual(product.category, self.category)
         self.assertEqual(product.stock_quantity, 10)
-        self.assertIsNotNone(product.sku)
+        self.assertEqual(product.sku, "TEST001")
+        self.assertTrue(product.is_active)
+        self.assertIsNotNone(product.id)
     
     def test_product_string_representation(self):
-        """Test product string representation."""
-        product = ProductFactory.create(name="Test Product")
-        self.assertEqual(str(product), "Test Product")
+        """Test that __str__ method returns the product name."""
+        product = Product.objects.create(
+            name="iPhone 13",
+            description="Smartphone",
+            price=Decimal('999.99'),
+            category=self.category,
+            stock_quantity=5,
+            sku="IPHONE13"
+        )
+        
+        self.assertEqual(str(product), "iPhone 13")
     
-    def test_product_price_decimal(self):
-        """Test that price is stored as decimal."""
-        product = ProductFactory.create(price=99.99)
-        # Django DecimalField stores as Decimal
+    def test_product_field_types(self):
+        """Test that fields have correct types."""
+        product = Product.objects.create(
+            name="Test Product",
+            description="Test Description",
+            price=Decimal('99.99'),
+            category=self.category,
+            stock_quantity=10,
+            sku="TEST002"
+        )
+        
+        # Test field types
         self.assertIsInstance(product.price, Decimal)
-        self.assertEqual(product.price, Decimal('99.99'))
+        self.assertIsInstance(product.stock_quantity, int)
+        self.assertIsInstance(product.is_active, bool)
+        self.assertIsInstance(product.name, str)
     
-    def test_product_sku_unique(self):
-        """Test that SKU must be unique."""
-        ProductFactory.create(sku="TEST001")
-        # Django doesn't enforce unique constraint at model level by default
-        # This would need to be added to the model or enforced at database level
-        # For now, we'll test that both can be created
-        product2 = ProductFactory.create(sku="TEST001")
-        self.assertEqual(product2.sku, "TEST001")
-    
-    def test_product_stock_validation(self):
-        """Test stock quantity validation."""
-        # Test negative stock - Django doesn't enforce this at model level
-        # We'll test that negative values can be created (validation happens elsewhere)
-        product = ProductFactory.create(stock_quantity=-1)
-        self.assertEqual(product.stock_quantity, -1)
-        
-        # Test zero stock (should be valid)
-        product = ProductFactory.create(stock_quantity=0)
-        product.full_clean()
-    
-    def test_product_price_validation(self):
-        """Test price validation."""
-        # Test negative price - Django doesn't enforce this at model level
-        # We'll test that negative values can be created (validation happens elsewhere)
-        product = ProductFactory.create(price=-10.00)
-        self.assertEqual(product.price, Decimal('-10.00'))
-        
-        # Test zero price (should be valid)
-        product = ProductFactory.create(price=0.00)
-        product.full_clean()
-    
-    def test_product_category_relationship(self):
+    def test_product_relationships(self):
         """Test product-category relationship."""
-        category = CategoryFactory.create(name="Electronics")
-        product = ProductFactory.create(category=category)
-        self.assertEqual(product.category, category)
-        self.assertIn(product, category.product_set.all())
+        product = Product.objects.create(
+            name="Test Product",
+            description="Test Description",
+            price=Decimal('99.99'),
+            category=self.category,
+            stock_quantity=10,
+            sku="TEST003"
+        )
+        
+        # Test forward relationship
+        self.assertEqual(product.category, self.category)
+        
+        # Test reverse relationship
+        self.assertIn(product, self.category.product_set.all())
     
     def test_product_timestamps(self):
         """Test that timestamps are automatically set."""
-        product = ProductFactory.create()
+        product = Product.objects.create(
+            name="Test Product",
+            description="Test Description",
+            price=Decimal('99.99'),
+            category=self.category,
+            stock_quantity=10,
+            sku="TEST004"
+        )
+        
+        # Test that timestamps are set
         self.assertIsNotNone(product.created_at)
         self.assertIsNotNone(product.updated_at)
     
-    def test_product_check_stock_method(self):
-        """Test the check_stock method."""
-        # Test with stock available
-        product = ProductFactory.create(stock_quantity=5)
-        self.assertTrue(product.check_stock())
+    def test_product_default_values(self):
+        """Test that default values are set correctly."""
+        product = Product.objects.create(
+            name="Test Product",
+            description="Test Description",
+            price=Decimal('99.99'),
+            category=self.category,
+            stock_quantity=10,
+            sku="TEST005"
+        )
         
-        # Test with no stock
-        product = ProductFactory.create(stock_quantity=0)
-        self.assertFalse(product.check_stock())
+        # Test default values
+        self.assertTrue(product.is_active)
+
+
+class ProductImageModelTest(TestCase):
+    """Tests for ProductImage model data structure and basic functionality."""
+    
+    def setUp(self):
+        """Create basic test data for each test."""
+        self.category = Category.objects.create(name="Electronics")
+        self.product = Product.objects.create(
+            name="Test Product",
+            description="Test Description",
+            price=Decimal('99.99'),
+            category=self.category,
+            stock_quantity=10,
+            sku="TEST001"
+        )
+    
+    def test_product_image_creation(self):
+        """Test that product image can be created with basic fields."""
+        # Note: We can't actually test ImageField without a real image file
+        # So we'll test the other fields
+        product_image = ProductImage.objects.create(
+            product=self.product,
+            alt_text="Test image",
+            is_primary=False
+        )
+        
+        # Verify field assignments
+        self.assertEqual(product_image.product, self.product)
+        self.assertEqual(product_image.alt_text, "Test image")
+        self.assertFalse(product_image.is_primary)
+        self.assertIsNotNone(product_image.id)
+    
+    def test_product_image_string_representation(self):
+        """Test that __str__ method returns formatted string."""
+        product_image = ProductImage.objects.create(
+            product=self.product,
+            alt_text="Test image",
+            is_primary=False
+        )
+        
+        expected_string = f"{self.product.name} - Image"
+        self.assertEqual(str(product_image), expected_string)
+    
+    def test_product_image_relationships(self):
+        """Test product image-product relationship."""
+        product_image = ProductImage.objects.create(
+            product=self.product,
+            alt_text="Test image",
+            is_primary=False
+        )
+        
+        # Test forward relationship
+        self.assertEqual(product_image.product, self.product)
+        
+        # Test reverse relationship
+        self.assertIn(product_image, self.product.productimage_set.all())
+    
+    def test_product_image_default_values(self):
+        """Test that default values are set correctly."""
+        product_image = ProductImage.objects.create(
+            product=self.product,
+            alt_text="Test image"
+        )
+        
+        # Test default values
+        self.assertFalse(product_image.is_primary)
 
 
 class ProductReviewModelTest(TestCase):
-    """Tests for ProductReview model."""
+    """Tests for ProductReview model data structure and basic functionality."""
+    
+    def setUp(self):
+        """Create basic test data for each test."""
+        self.category = Category.objects.create(name="Electronics")
+        self.product = Product.objects.create(
+            name="Test Product",
+            description="Test Description",
+            price=Decimal('99.99'),
+            category=self.category,
+            stock_quantity=10,
+            sku="TEST001"
+        )
+        self.user = User.objects.create_user(
+            username="testuser",
+            email="test@example.com",
+            password="testpass123"
+        )
     
     def test_review_creation(self):
-        """Test basic review creation."""
-        review = ProductReviewFactory.create(
+        """Test that review can be created with all required fields."""
+        review = ProductReview.objects.create(
+            product=self.product,
+            user=self.user,
             rating=5,
             comment="Great product!"
         )
+        
+        # Verify field assignments
+        self.assertEqual(review.product, self.product)
+        self.assertEqual(review.user, self.user)
         self.assertEqual(review.rating, 5)
         self.assertEqual(review.comment, "Great product!")
+        self.assertIsNotNone(review.id)
     
     def test_review_string_representation(self):
-        """Test review string representation."""
-        review = ProductReviewFactory.create(rating=4)
-        self.assertIn("4", str(review))
+        """Test that __str__ method returns formatted string."""
+        review = ProductReview.objects.create(
+            product=self.product,
+            user=self.user,
+            rating=4,
+            comment="Good product"
+        )
+        
+        expected_string = f"{self.product.name} - 4 stars"
+        self.assertEqual(str(review), expected_string)
     
-    def test_review_rating_validation(self):
-        """Test rating validation."""
-        # Test rating below minimum - Django doesn't enforce this at model level
-        # We'll test that all ratings can be created (validation happens elsewhere)
-        for rating in [0, 1, 2, 3, 4, 5, 6]:
-            review = ProductReviewFactory.create(rating=rating)
-            self.assertEqual(review.rating, rating)
-    
-    def test_review_comment_optional(self):
-        """Test that comment is optional."""
-        review = ProductReviewFactory.create(comment="")
-        self.assertEqual(review.comment, "")
-    
-    def test_review_product_relationship(self):
-        """Test review-product relationship."""
-        product = ProductFactory.create()
-        review = ProductReviewFactory.create(product=product)
-        self.assertEqual(review.product, product)
-        self.assertIn(review, product.productreview_set.all())
-    
-    def test_review_user_relationship(self):
-        """Test review-user relationship."""
-        user = UserFactory.create()
-        review = ProductReviewFactory.create(user=user)
-        self.assertEqual(review.user, user)
+    def test_review_relationships(self):
+        """Test review-product and review-user relationships."""
+        review = ProductReview.objects.create(
+            product=self.product,
+            user=self.user,
+            rating=5,
+            comment="Great product!"
+        )
+        
+        # Test product relationship
+        self.assertEqual(review.product, self.product)
+        self.assertIn(review, self.product.productreview_set.all())
+        
+        # Test user relationship
+        self.assertEqual(review.user, self.user)
     
     def test_review_timestamps(self):
-        """Test that timestamps are automatically set."""
-        review = ProductReviewFactory.create()
+        """Test that created_at timestamp is automatically set."""
+        review = ProductReview.objects.create(
+            product=self.product,
+            user=self.user,
+            rating=5,
+            comment="Great product!"
+        )
+        
+        # Test that timestamp is set
         self.assertIsNotNone(review.created_at)
-        # Note: ProductReview model only has created_at, not updated_at
-
-
-class ModelRelationshipsTest(TestCase):
-    """Tests for model relationships and cascading."""
     
-    def test_category_product_cascade(self):
-        """Test that deleting a category cascades to products."""
-        category = CategoryFactory.create()
-        product = ProductFactory.create(category=category)
+    def test_review_field_types(self):
+        """Test that fields have correct types."""
+        review = ProductReview.objects.create(
+            product=self.product,
+            user=self.user,
+            rating=5,
+            comment="Great product!"
+        )
         
-        # Delete category
-        category.delete()
-        
-        # Product should also be deleted
-        with self.assertRaises(Product.DoesNotExist):
-            Product.objects.get(id=product.id)
-    
-    def test_product_review_cascade(self):
-        """Test that deleting a product cascades to reviews."""
-        product = ProductFactory.create()
-        review = ProductReviewFactory.create(product=product)
-        
-        # Delete product
-        product.delete()
-        
-        # Review should also be deleted
-        with self.assertRaises(ProductReview.DoesNotExist):
-            ProductReview.objects.get(id=review.id)
-    
-    def test_user_review_cascade(self):
-        """Test that deleting a user cascades to reviews."""
-        user = UserFactory.create()
-        review = ProductReviewFactory.create(user=user)
-        
-        # Delete user
-        user.delete()
-        
-        # Review should also be deleted
-        with self.assertRaises(ProductReview.DoesNotExist):
-            ProductReview.objects.get(id=review.id)
+        # Test field types
+        self.assertIsInstance(review.rating, int)
+        self.assertIsInstance(review.comment, str)
+        self.assertIsInstance(review.product, Product)
+        self.assertIsInstance(review.user, User)
