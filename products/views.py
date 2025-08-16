@@ -9,6 +9,7 @@ from .serializers import (
     ProductReviewSerializer, ProductListSerializer
 )
 from .services import ProductService
+from .repositories import ProductRepository, CategoryRepository, ProductReviewRepository
 
 class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.all()
@@ -22,7 +23,16 @@ class ProductViewSet(viewsets.ModelViewSet):
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.product_service = ProductService()
+        # Inject repositories
+        self.product_repository = ProductRepository()
+        self.category_repository = CategoryRepository()
+        self.review_repository = ProductReviewRepository()
+        # Create service with repository dependencies
+        self.product_service = ProductService(
+            product_repository=self.product_repository,
+            category_repository=self.category_repository,
+            review_repository=self.review_repository
+        )
     
     def get_serializer_class(self):
         if self.action == 'list':
@@ -68,7 +78,16 @@ class ProductReviewViewSet(viewsets.ModelViewSet):
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.product_service = ProductService()
+        # Inject repositories
+        self.product_repository = ProductRepository()
+        self.category_repository = CategoryRepository()
+        self.review_repository = ProductReviewRepository()
+        # Create service with repository dependencies
+        self.product_service = ProductService(
+            product_repository=self.product_repository,
+            category_repository=self.category_repository,
+            review_repository=self.review_repository
+        )
     
     def get_queryset(self):
         product_id = self.request.query_params.get('product')
@@ -81,7 +100,16 @@ class ProductSearchView(generics.ListAPIView):
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.product_service = ProductService()
+        # Inject repositories
+        self.product_repository = ProductRepository()
+        self.category_repository = CategoryRepository()
+        self.review_repository = ProductReviewRepository()
+        # Create service with repository dependencies
+        self.product_service = ProductService(
+            product_repository=self.product_repository,
+            category_repository=self.category_repository,
+            review_repository=self.review_repository
+        )
     
     def get_queryset(self):
         query = self.request.query_params.get('q', '')

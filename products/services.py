@@ -1,12 +1,27 @@
-from .models import Product, Category, ProductImage, ProductReview
-from django.db.models import Q
+from .repositories import ProductRepository, CategoryRepository, ProductReviewRepository
 
 
 class ProductService:
     """
     Service class for product-related business logic.
     Separates business logic from HTTP concerns in ViewSets.
+    Uses repositories for data access to follow SOLID principles.
     """
+    
+    def __init__(self, product_repository: ProductRepository, 
+                 category_repository: CategoryRepository,
+                 review_repository: ProductReviewRepository):
+        """
+        Initialize service with repository dependencies.
+        
+        Args:
+            product_repository: Repository for product data access
+            category_repository: Repository for category data access
+            review_repository: Repository for review data access
+        """
+        self.product_repository = product_repository
+        self.category_repository = category_repository
+        self.review_repository = review_repository
     
     def update_product_stock(self, product_id, new_stock):
         """
@@ -30,11 +45,11 @@ class ProductService:
         if new_stock < 0:
             return {'error': 'stock_quantity cannot be negative'}
         
-        product = Product.objects.get(id=product_id)
-        product.stock_quantity = new_stock
-        product.save()
-        
-        return {'message': 'Stock updated successfully', 'new_stock': new_stock}
+        try:
+            product = self.product_repository.update_stock(product_id, new_stock)
+            return {'message': 'Stock updated successfully', 'new_stock': new_stock}
+        except ValueError as e:
+            return {'error': str(e)}
     
     def get_low_stock_products(self, threshold):
         """
@@ -51,7 +66,7 @@ class ProductService:
         except ValueError:
             threshold = 10
         
-        return Product.objects.filter(stock_quantity__lte=threshold)
+        return self.product_repository.get_low_stock(threshold)
     
     def get_products_with_filters_and_enrichment(self, filters):
         """
@@ -63,40 +78,41 @@ class ProductService:
         Returns:
             QuerySet: Filtered and enriched products
         """
-        queryset = Product.objects.all()
+        # Start with all products
+        queryset = self.product_repository.get_all()
         
-        # Apply business logic filters
+        # Apply business logic filters using repositories
         category = filters.get('category')
         if category is not None:
             queryset = queryset.filter(category=category)
         
         search = filters.get('search')
         if search is not None:
-            queryset = queryset.filter(
-                Q(name__icontains=search) | 
-                Q(description__icontains=search)
-            )
+            queryset = self.product_repository.search_by_name_or_description(search)
         
         min_price = filters.get('min_price')
-        if min_price is not None:
-            queryset = queryset.filter(price__gte=min_price)
-        
         max_price = filters.get('max_price')
-        if max_price is not None:
-            queryset = queryset.filter(price__lte=max_price)
+        if min_price is not None or max_price is not None:
+            min_price = min_price if min_price is not None else 0
+            max_price = max_price if max_price is not None else float('inf')
+            queryset = self.product_repository.get_by_price_range(min_price, max_price)
         
-        # Apply business logic enrichment
+        # Apply business logic enrichment using repositories
         for product in queryset:
             # Category name enrichment
-            category_obj = Category.objects.get(id=product.category_id)
-            product.category_name = category_obj.name
+            try:
+                category_obj = self.category_repository.get_by_id(product.category_id)
+                product.category_name = category_obj.name
+            except ValueError:
+                product.category_name = "Unknown Category"
             
-            # Image count enrichment
+            # Image count enrichment (using direct model access for now - can be abstracted later)
+            from .models import ProductImage
             images = ProductImage.objects.filter(product=product)
             product.image_count = len(images)
             
-            # Average rating enrichment
-            reviews = ProductReview.objects.filter(product=product)
+            # Average rating enrichment using repository
+            reviews = self.review_repository.get_by_product(product.id)
             if reviews:
                 total_rating = 0
                 for review in reviews:
@@ -118,17 +134,9 @@ class ProductService:
             QuerySet: Products matching the search query
         """
         if not query:
-            return Product.objects.none()
+            return self.product_repository.get_all().none()
         
-        all_products = Product.objects.all()
-        matching_products = []
-        
-        for product in all_products:
-            if (query.lower() in product.name.lower() or 
-                query.lower() in product.description.lower()):
-                matching_products.append(product)
-        
-        return matching_products
+        return self.product_repository.search_by_name_or_description(query)
     
     def get_reviews_by_product(self, product_id):
         """
@@ -140,7 +148,4 @@ class ProductService:
         Returns:
             QuerySet: Reviews for the specified product
         """
-        queryset = ProductReview.objects.all()
-        if product_id is not None:
-            queryset = queryset.filter(product=product_id)
-        return queryset
+        return self.review_repository.get_by_product(product_id)
