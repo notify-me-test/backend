@@ -1,27 +1,21 @@
 from .repositories import ProductRepository, CategoryRepository, ProductReviewRepository
+from django.core.exceptions import ValidationError
 
 
 class ProductService:
     """
     Service class for product-related business logic.
-    Separates business logic from HTTP concerns in ViewSets.
-    Uses repositories for data access to follow SOLID principles.
+    Focuses solely on product business operations.
     """
     
-    def __init__(self, product_repository: ProductRepository, 
-                 category_repository: CategoryRepository,
-                 review_repository: ProductReviewRepository):
+    def __init__(self, product_repository: ProductRepository):
         """
-        Initialize service with repository dependencies.
+        Initialize service with product repository dependency.
         
         Args:
             product_repository: Repository for product data access
-            category_repository: Repository for category data access
-            review_repository: Repository for review data access
         """
         self.product_repository = product_repository
-        self.category_repository = category_repository
-        self.review_repository = review_repository
     
     def update_product_stock(self, product_id, new_stock):
         """
@@ -68,12 +62,30 @@ class ProductService:
         
         return self.product_repository.get_low_stock(threshold)
     
-    def get_products_with_filters_and_enrichment(self, filters):
+    def search_products(self, query):
+        """
+        Search products by name or description.
+        
+        Args:
+            query: Search query string
+            
+        Returns:
+            QuerySet: Products matching the search query
+        """
+        if not query:
+            return self.product_repository.get_all().none()
+        
+        return self.product_repository.search_by_name_or_description(query)
+    
+    def get_products_with_filters_and_enrichment(self, filters, category_repository, review_repository):
         """
         Get products with filtering and enrichment.
+        This method coordinates with other services for enrichment.
         
         Args:
             filters: dict with category, search, min_price, max_price
+            category_repository: Repository for category data access
+            review_repository: Repository for review data access
             
         Returns:
             QuerySet: Filtered and enriched products
@@ -101,7 +113,7 @@ class ProductService:
         for product in queryset:
             # Category name enrichment
             try:
-                category_obj = self.category_repository.get_by_id(product.category_id)
+                category_obj = category_repository.get_by_id(product.category_id)
                 product.category_name = category_obj.name
             except ValueError:
                 product.category_name = "Unknown Category"
@@ -112,7 +124,7 @@ class ProductService:
             product.image_count = len(images)
             
             # Average rating enrichment using repository
-            reviews = self.review_repository.get_by_product(product.id)
+            reviews = review_repository.get_by_product(product.id)
             if reviews:
                 total_rating = 0
                 for review in reviews:
@@ -122,21 +134,74 @@ class ProductService:
                 product.average_rating = 0
         
         return queryset
+
+
+class CategoryService:
+    """
+    Service class for category-related business logic.
+    Focuses solely on category business operations.
+    """
     
-    def search_products(self, query):
+    def __init__(self, category_repository: CategoryRepository):
         """
-        Search products by name or description.
+        Initialize service with category repository dependency.
         
         Args:
-            query: Search query string
-            
-        Returns:
-            QuerySet: Products matching the search query
+            category_repository: Repository for category data access
         """
-        if not query:
-            return self.product_repository.get_all().none()
+        self.category_repository = category_repository
+    
+    def validate_category(self, category_data):
+        """
+        Validate category business rules.
         
-        return self.product_repository.search_by_name_or_description(query)
+        Args:
+            category_data: Dictionary containing category data
+            
+        Raises:
+            ValidationError: If business rules are violated
+        """
+        if not category_data.get('name'):
+            raise ValidationError("Category name is required")
+        
+        if len(category_data.get('name', '').strip()) < 2:
+            raise ValidationError("Category name must be at least 2 characters long")
+
+
+class ReviewService:
+    """
+    Service class for review-related business logic.
+    Focuses solely on review business operations.
+    """
+    
+    def __init__(self, review_repository: ProductReviewRepository):
+        """
+        Initialize service with review repository dependency.
+        
+        Args:
+            review_repository: Repository for review data access
+        """
+        self.review_repository = review_repository
+    
+    def validate_review(self, review_data):
+        """
+        Validate review business rules.
+        
+        Args:
+            review_data: Dictionary containing review data
+            
+        Raises:
+            ValidationError: If business rules are violated
+        """
+        rating = review_data.get('rating')
+        if rating is not None and (rating < 1 or rating > 5):
+            raise ValidationError("Rating must be between 1 and 5")
+        
+        if not review_data.get('comment'):
+            raise ValidationError("Review comment is required")
+        
+        if len(review_data.get('comment', '').strip()) < 10:
+            raise ValidationError("Review comment must be at least 10 characters long")
     
     def get_reviews_by_product(self, product_id):
         """
