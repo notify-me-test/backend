@@ -12,7 +12,6 @@ class ProductImageSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 class ProductSerializer(serializers.ModelSerializer):
-    images = ProductImageSerializer(many=True, read_only=True)
     category_name = serializers.CharField(source='category.name', read_only=True)
     
     class Meta:
@@ -26,11 +25,10 @@ class ProductSerializer(serializers.ModelSerializer):
 
 class ProductListSerializer(serializers.ModelSerializer):
     category = CategorySerializer()
-    images = ProductImageSerializer(many=True)
     
     class Meta:
         model = Product
-        fields = ['id', 'name', 'price', 'category', 'stock_quantity', 'images', 'is_active']
+        fields = ['id', 'name', 'price', 'category', 'stock_quantity', 'is_active']
 
 class ProductReviewSerializer(serializers.ModelSerializer):
     user_name = serializers.CharField(source='user.username', read_only=True)

@@ -21,11 +21,6 @@ class ProductRepositoryInterface(ABC):
         pass
     
     @abstractmethod
-    def get_by_category(self, category_id: int) -> QuerySet:
-        """Get products by category ID."""
-        pass
-    
-    @abstractmethod
     def get_by_price_range(self, min_price: float, max_price: float) -> QuerySet:
         """Get products within price range."""
         pass
@@ -33,16 +28,6 @@ class ProductRepositoryInterface(ABC):
     @abstractmethod
     def get_low_stock(self, threshold: int) -> QuerySet:
         """Get products with stock below or equal to threshold."""
-        pass
-    
-    @abstractmethod
-    def search_by_name(self, query: str) -> QuerySet:
-        """Search products by name."""
-        pass
-    
-    @abstractmethod
-    def search_by_description(self, query: str) -> QuerySet:
-        """Search products by description."""
         pass
     
     @abstractmethod
@@ -88,11 +73,6 @@ class CategoryRepositoryInterface(ABC):
         pass
     
     @abstractmethod
-    def get_by_name(self, name: str) -> Optional[Category]:
-        """Get category by name."""
-        pass
-    
-    @abstractmethod
     def create(self, **kwargs) -> Category:
         """Create a new category."""
         pass
@@ -127,11 +107,6 @@ class ProductReviewRepositoryInterface(ABC):
     @abstractmethod
     def get_by_product(self, product_id: int) -> QuerySet:
         """Get reviews by product ID."""
-        pass
-    
-    @abstractmethod
-    def get_by_user(self, user_id: int) -> QuerySet:
-        """Get reviews by user ID."""
         pass
     
     @abstractmethod
@@ -199,10 +174,6 @@ class ProductRepository(ProductRepositoryInterface):
         except Exception as e:
             raise ValueError(f"Error retrieving product {product_id}: {str(e)}")
     
-    def get_by_category(self, category_id: int) -> QuerySet:
-        """Get products by category ID."""
-        return Product.objects.filter(category_id=category_id)
-    
     def get_by_price_range(self, min_price: float, max_price: float) -> QuerySet:
         """Get products within price range."""
         return Product.objects.filter(price__gte=min_price, price__lte=max_price)
@@ -210,14 +181,6 @@ class ProductRepository(ProductRepositoryInterface):
     def get_low_stock(self, threshold: int) -> QuerySet:
         """Get products with stock below or equal to threshold."""
         return Product.objects.filter(stock_quantity__lte=threshold)
-    
-    def search_by_name(self, query: str) -> QuerySet:
-        """Search products by name."""
-        return Product.objects.filter(name__icontains=query)
-    
-    def search_by_description(self, query: str) -> QuerySet:
-        """Search products by description."""
-        return Product.objects.filter(description__icontains=query)
     
     def search_by_name_or_description(self, query: str) -> QuerySet:
         """Search products by name or description."""
@@ -256,15 +219,6 @@ class CategoryRepository(CategoryRepositoryInterface):
             raise ValueError(f"Category with id {category_id} not found")
         except Exception as e:
             raise ValueError(f"Error retrieving category {category_id}: {str(e)}")
-    
-    def get_by_name(self, name: str) -> Optional[Category]:
-        """Get category by name."""
-        try:
-            return Category.objects.get(name=name)
-        except Category.DoesNotExist:
-            return None
-        except Exception as e:
-            raise ValueError(f"Error retrieving category by name {name}: {str(e)}")
     
     def create(self, **kwargs) -> Category:
         """Create a new category."""
@@ -319,10 +273,6 @@ class ProductReviewRepository(ProductReviewRepositoryInterface):
     def get_by_product(self, product_id: int) -> QuerySet:
         """Get reviews by product ID."""
         return ProductReview.objects.filter(product_id=product_id)
-    
-    def get_by_user(self, user_id: int) -> QuerySet:
-        """Get reviews by user ID."""
-        return ProductReview.objects.filter(user_id=user_id)
     
     def create(self, **kwargs) -> ProductReview:
         """Create a new review."""

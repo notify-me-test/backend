@@ -1,15 +1,14 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
-    ProductViewSet, CategoryViewSet, ProductReviewViewSet, ProductSearchView
+    ProductViewSet, CategoryViewSet, ProductReviewViewSet
 )
 
 router = DefaultRouter()
-router.register(r'products', ProductViewSet)
-router.register(r'categories', CategoryViewSet)
-router.register(r'reviews', ProductReviewViewSet)
+router.register(r'products', ProductViewSet, basename='product')
+router.register(r'categories', CategoryViewSet, basename='category')
+router.register(r'reviews', ProductReviewViewSet, basename='productreview')
 
 urlpatterns = [
     path('api/', include(router.urls)),
-    path('api/search/', ProductSearchView.as_view(), name='product-search'),
 ]

@@ -1,424 +1,1185 @@
 """
-Tests for API views.
-Tests API endpoints, serialization, and HTTP behavior.
+Tests for product views.
 """
-
 from django.test import TestCase
+from rest_framework.test import APIRequestFactory
 from django.urls import reverse
-from rest_framework.test import APITestCase
+from rest_framework.test import APIClient
 from rest_framework import status
+from unittest.mock import patch, MagicMock
+from django.core.exceptions import ValidationError
 from decimal import Decimal
 from products.models import Category, Product, ProductReview
-from products.repositories import (
-    ProductRepository, CategoryRepository, ProductReviewRepository
-)
-from products.services import ProductService
-from .factories import CategoryFactory, ProductFactory, ProductReviewFactory, UserFactory
+from django.contrib.auth.models import User
+from products.views import CategoryViewSet
+from products.views import ProductViewSet
+from products.views import ProductReviewViewSet
 
 
-class ProductViewSetTest(APITestCase):
-    """Tests for ProductViewSet API endpoints."""
+class CategoryViewSetTest(TestCase):
+    """Test cases for CategoryViewSet class with dependency injection."""
     
     def setUp(self):
-        """Set up test data."""
-        self.user = UserFactory.create()
-        self.category = CategoryFactory.create(name="Electronics")
-        self.product = ProductFactory.create(
-            name="Test Product",
-            category=self.category,
-            price=99.99,
-            stock_quantity=10
+        """Set up test data and mocked services for each test."""
+        # Create test data for mocking
+        self.category_data = {
+            'id': 1,
+            'name': 'Electronics',
+            'description': 'Electronic devices and gadgets'
+        }
+        
+        self.category = Category(**self.category_data)
+        
+        # Mock data for list operations
+        self.categories_list = [
+            Category(id=1, name='Electronics', description='Electronic devices'),
+            Category(id=2, name='Books', description='Books and literature')
+        ]
+        
+        # Create mocked service
+        self.mock_category_service = MagicMock()
+        
+        # Create ViewSet with injected service
+        self.viewset = CategoryViewSet(category_service=self.mock_category_service)
+        
+        # Create request factory for testing ViewSet methods directly
+        self.factory = APIRequestFactory()
+        
+        # Set up test client for HTTP-level testing
+        self.client = APIClient()
+    
+    # LIST Tests (GET /categories/)
+    
+    def test_list_categories_success(self):
+        """Test successful retrieval of all categories."""
+        # Setup mock
+        self.mock_category_service.get_all_categories.return_value = self.categories_list
+        
+        # Create request
+        request = self.factory.get('/categories/')
+        
+        # Call ViewSet method directly
+        response = self.viewset.list(request)
+        
+        # Assert service was called
+        self.mock_category_service.get_all_categories.assert_called_once()
+        
+        # Assert response
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 2)
+        self.assertEqual(response.data[0]['name'], 'Electronics')
+        self.assertEqual(response.data[1]['name'], 'Books')
+    
+    # RETRIEVE Tests (GET /categories/{id}/)
+    
+    def test_retrieve_category_success(self):
+        """Test successful retrieval of single category."""
+        # Setup mock
+        self.mock_category_service.get_category_by_id.return_value = self.category
+        
+        # Create request
+        request = self.factory.get('/categories/1/')
+        
+        # Call ViewSet method directly
+        response = self.viewset.retrieve(request, pk='1')
+        
+        # Assert service was called with correct ID
+        self.mock_category_service.get_category_by_id.assert_called_once_with('1')
+        
+        # Assert response
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['name'], 'Electronics')
+        self.assertEqual(response.data['description'], 'Electronic devices and gadgets')
+    
+    def test_retrieve_category_not_found(self):
+        """Test handling of non-existent category ID."""
+        # Setup mock to raise ValueError
+        self.mock_category_service.get_category_by_id.side_effect = ValueError("Category with id 999 not found")
+        
+        # Create request
+        request = self.factory.get('/categories/999/')
+        
+        # Call ViewSet method directly
+        response = self.viewset.retrieve(request, pk='999')
+        
+        # Assert service was called
+        self.mock_category_service.get_category_by_id.assert_called_once_with('999')
+        
+        # Assert error response
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn('error', response.data)
+        self.assertIn('Category with id 999 not found', response.data['error'])
+    
+    # CREATE Tests (POST /categories/)
+    
+    def test_create_category_success(self):
+        """Test successful category creation."""
+        # Setup mocks
+        self.mock_category_service.validate_category.return_value = None  # No validation errors
+        self.mock_category_service.create_category.return_value = self.category
+        
+        # Request data
+        create_data = {
+            'name': 'Electronics',
+            'description': 'Electronic devices and gadgets'
+        }
+        
+        # Create request
+        request = self.factory.post('/categories/', create_data, format='json')
+        request.data = create_data  # Add .data attribute for DRF compatibility
+        
+        # Call ViewSet method directly
+        response = self.viewset.create(request)
+        
+        # Assert services were called with correct data
+        self.mock_category_service.validate_category.assert_called_once_with(create_data)
+        self.mock_category_service.create_category.assert_called_once_with(create_data)
+        
+        # Assert response
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['name'], 'Electronics')
+        self.assertEqual(response.data['description'], 'Electronic devices and gadgets')
+    
+    def test_create_category_validation_error(self):
+        """Test category creation with validation errors."""
+        # Setup mock to raise ValidationError
+        self.mock_category_service.validate_category.side_effect = ValidationError("Name is required")
+        
+        # Request data (missing required field)
+        create_data = {
+            'description': 'Electronic devices and gadgets'
+        }
+        
+        # Create request
+        request = self.factory.post('/categories/', create_data, format='json')
+        request.data = create_data  # Add .data attribute for DRF compatibility
+        
+        # Call ViewSet method directly
+        response = self.viewset.create(request)
+        
+        # Assert validation service was called
+        self.mock_category_service.validate_category.assert_called_once_with(create_data)
+        
+        # Assert error response
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('error', response.data)
+        self.assertIn('Name is required', response.data['error'])
+    
+    # UPDATE Tests (PUT /categories/{id}/)
+    
+    def test_update_category_success(self):
+        """Test successful category update."""
+        # Setup mocks
+        self.mock_category_service.validate_category.return_value = None  # No validation errors
+        updated_category = Category(id=1, name='Updated Electronics', description='Updated description')
+        self.mock_category_service.update_category.return_value = updated_category
+        
+        # Request data
+        update_data = {
+            'name': 'Updated Electronics',
+            'description': 'Updated description'
+        }
+        
+        # Create request
+        request = self.factory.put('/categories/1/', update_data, format='json')
+        request.data = update_data  # Add .data attribute for DRF compatibility
+        
+        # Call ViewSet method directly
+        response = self.viewset.update(request, pk='1')
+        
+        # Assert services were called with correct parameters
+        self.mock_category_service.validate_category.assert_called_once_with(update_data)
+        self.mock_category_service.update_category.assert_called_once_with('1', update_data)
+        
+        # Assert response
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['name'], 'Updated Electronics')
+        self.assertEqual(response.data['description'], 'Updated description')
+    
+    def test_update_category_not_found(self):
+        """Test update of non-existent category."""
+        # Setup mocks
+        self.mock_category_service.validate_category.return_value = None  # No validation errors
+        self.mock_category_service.update_category.side_effect = ValueError("Category with id 999 not found")
+        
+        # Request data
+        update_data = {
+            'name': 'Updated Electronics',
+            'description': 'Updated description'
+        }
+        
+        # Create request
+        request = self.factory.put('/categories/999/', update_data, format='json')
+        request.data = update_data  # Add .data attribute for DRF compatibility
+        
+        # Call ViewSet method directly
+        response = self.viewset.update(request, pk='999')
+        
+        # Assert services were called
+        self.mock_category_service.validate_category.assert_called_once_with(update_data)
+        self.mock_category_service.update_category.assert_called_once_with('999', update_data)
+        
+        # Assert error response
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn('error', response.data)
+        self.assertIn('Category with id 999 not found', response.data['error'])
+    
+    def test_update_category_validation_error(self):
+        """Test category update with validation errors."""
+        # Setup mock to raise ValidationError
+        self.mock_category_service.validate_category.side_effect = ValidationError("Name cannot be empty")
+        
+        # Request data (invalid data)
+        update_data = {
+            'name': '',  # Empty name should fail validation
+            'description': 'Updated description'
+        }
+        
+        # Create request
+        request = self.factory.put('/categories/1/', update_data, format='json')
+        request.data = update_data  # Add .data attribute for DRF compatibility
+        
+        # Call ViewSet method directly
+        response = self.viewset.update(request, pk='1')
+        
+        # Assert validation service was called
+        self.mock_category_service.validate_category.assert_called_once_with(update_data)
+        
+        # Assert error response
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('error', response.data)
+        self.assertIn('Name cannot be empty', response.data['error'])
+    
+    # DELETE Tests (DELETE /categories/{id}/)
+    
+    def test_delete_category_success(self):
+        """Test successful category deletion."""
+        # Setup mock
+        self.mock_category_service.delete_category.return_value = True
+        
+        # Create request
+        request = self.factory.delete('/categories/1/')
+        
+        # Call ViewSet method directly
+        response = self.viewset.destroy(request, pk='1')
+        
+        # Assert service was called with correct ID
+        self.mock_category_service.delete_category.assert_called_once_with('1')
+        
+        # Assert response
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+    
+    def test_delete_category_not_found(self):
+        """Test deletion of non-existent category."""
+        # Setup mock to raise ValueError
+        self.mock_category_service.delete_category.side_effect = ValueError("Category with id 999 not found")
+        
+        # Create request
+        request = self.factory.delete('/categories/999/')
+        
+        # Call ViewSet method directly
+        response = self.viewset.destroy(request, pk='999')
+        
+        # Assert service was called
+        self.mock_category_service.delete_category.assert_called_once_with('999')
+        
+        # Assert error response
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn('error', response.data)
+        self.assertIn('Category with id 999 not found', response.data['error'])
+    
+    def test_delete_category_failure(self):
+        """Test category deletion when service returns False."""
+        # Setup mock to return False (deletion failed)
+        self.mock_category_service.delete_category.return_value = False
+        
+        # Create request
+        request = self.factory.delete('/categories/1/')
+        
+        # Call ViewSet method directly
+        response = self.viewset.destroy(request, pk='1')
+        
+        # Assert service was called
+        self.mock_category_service.delete_category.assert_called_once_with('1')
+        
+        # Assert error response
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('error', response.data)
+        self.assertIn('Failed to delete category', response.data['error'])
+    
+    # Dependency Injection Tests
+    
+    def test_default_service_creation(self):
+        """Test that ViewSet creates default service when none provided."""
+        # Create ViewSet without injecting service
+        viewset = CategoryViewSet()
+        
+        # Verify default service was created
+        self.assertIsNotNone(viewset.category_service)
+        # In production, this should be a real CategoryService instance
+        from products.services import CategoryService
+        self.assertIsInstance(viewset.category_service, CategoryService)
+    
+    def test_injected_service_usage(self):
+        """Test that injected service is used instead of default."""
+        # Create ViewSet with injected service
+        viewset = CategoryViewSet(category_service=self.mock_category_service)
+        
+        # Verify injected service is used
+        self.assertEqual(viewset.category_service, self.mock_category_service)
+
+
+class ProductViewSetTest(TestCase):
+    """Test cases for ProductViewSet class with dependency injection."""
+    
+    def setUp(self):
+        """Set up test data and mocked services for each test."""
+        # Create test data for mocking
+        self.category_data = {
+            'id': 1,
+            'name': 'Electronics',
+            'description': 'Electronic devices and gadgets'
+        }
+        
+        self.category = Category(**self.category_data)
+        
+        self.product_data = {
+            'id': 1,
+            'name': 'Test Product',
+            'description': 'A test product for testing',
+            'price': Decimal('99.99'),
+            'stock_quantity': 10,
+            'category': self.category
+        }
+        
+        self.product = Product(**self.product_data)
+        
+        # Mock data for list operations
+        self.products_list = [
+            Product(id=1, name='Product 1', description='First product', price=Decimal('99.99'), stock_quantity=10, category=self.category),
+            Product(id=2, name='Product 2', description='Second product', price=Decimal('149.99'), stock_quantity=5, category=self.category)
+        ]
+        
+        # Create mocked services
+        self.mock_product_service = MagicMock()
+        self.mock_category_service = MagicMock()
+        self.mock_review_service = MagicMock()
+        
+        # Create ViewSet with injected services
+        self.viewset = ProductViewSet(
+            product_service=self.mock_product_service,
+            category_service=self.mock_category_service,
+            review_service=self.mock_review_service
         )
         
-        # Set up repositories and service
-        self.product_repository = ProductRepository()
-        self.category_repository = CategoryRepository()
-        self.review_repository = ProductReviewRepository()
-        self.service = ProductService(
-            product_repository=self.product_repository,
-            category_repository=self.category_repository,
-            review_repository=self.review_repository
-        )
+        # Create request factory for testing ViewSet methods directly
+        self.factory = APIRequestFactory()
+        
+        # Set up test client for HTTP-level testing
+        self.client = APIClient()
     
-    def test_list_products(self):
-        """Test GET /api/products/ endpoint."""
-        # Create additional products
-        for i in range(2):
-            ProductFactory.create(category=self.category)
-        
-        url = reverse('product-list')
-        response = self.client.get(url)
-        
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 3)  # 1 from setUp + 2 new ones
+    # LIST Tests (GET /products/)
     
-    def test_retrieve_product(self):
-        """Test GET /api/products/{id}/ endpoint."""
-        url = reverse('product-detail', args=[self.product.id])
-        response = self.client.get(url)
+    def test_list_products_success(self):
+        """Test successful retrieval of all products."""
+        # Setup mock
+        self.mock_product_service.get_products_with_filters_and_enrichment.return_value = self.products_list
         
+        # Create request with query parameters
+        request = self.factory.get('/products/?category=1&min_price=50&max_price=200')
+        
+        # Mock request.data and query_params for the test
+        request.data = {}
+        request.query_params = {'category': '1', 'min_price': '50', 'max_price': '200'}
+        
+        # Call ViewSet method directly
+        response = self.viewset.list(request)
+        
+        # Assert service was called with correct filters
+        self.mock_product_service.get_products_with_filters_and_enrichment.assert_called_once()
+        
+        # Assert response
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['name'], self.product.name)
-        self.assertEqual(response.data['price'], str(self.product.price))
-        self.assertEqual(response.data['category'], self.category.id)
+        self.assertEqual(len(response.data['results']), 2)
+        self.assertEqual(response.data['results'][0]['name'], 'Product 1')
+        self.assertEqual(response.data['results'][1]['name'], 'Product 2')
+        self.assertEqual(response.data['count'], 2)
+        self.assertIsNone(response.data['next'])
+        self.assertIsNone(response.data['previous'])
+    
+    # RETRIEVE Tests (GET /products/{id}/)
+    
+    def test_retrieve_product_success(self):
+        """Test successful retrieval of single product."""
+        # Setup mock
+        self.mock_product_service.get_product_by_id.return_value = self.product
+        
+        # Create request
+        request = self.factory.get('/products/1/')
+        
+        # Mock request.data for the test
+        request.data = {}
+        
+        # Call ViewSet method directly
+        response = self.viewset.retrieve(request, pk='1')
+        
+        # Assert service was called with correct ID
+        self.mock_product_service.get_product_by_id.assert_called_once_with('1')
+        
+        # Assert response
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['name'], 'Test Product')
+        self.assertEqual(response.data['price'], '99.99')
     
     def test_retrieve_product_not_found(self):
-        """Test GET /api/products/{id}/ with non-existent product."""
-        url = reverse('product-detail', args=[99999])
-        response = self.client.get(url)
+        """Test handling of non-existent product ID."""
+        # Setup mock to raise ValueError
+        self.mock_product_service.get_product_by_id.side_effect = ValueError("Product with id 999 not found")
         
+        # Create request
+        request = self.factory.get('/products/999/')
+        
+        # Mock request.data for the test
+        request.data = {}
+        
+        # Call ViewSet method directly
+        response = self.viewset.retrieve(request, pk='999')
+        
+        # Assert service was called
+        self.mock_product_service.get_product_by_id.assert_called_once_with('999')
+        
+        # Assert error response
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn('error', response.data)
+        self.assertIn('Product with id 999 not found', response.data['error'])
     
-    def test_create_product(self):
-        """Test POST /api/products/ endpoint."""
-        url = reverse('product-list')
-        data = {
-            'name': 'New Product',
-            'description': 'New Description',
-            'price': '199.99',
-            'category': self.category.id,
-            'stock_quantity': 5,
-            'sku': 'NEW001'
+    # CREATE Tests (POST /products/)
+    
+    def test_create_product_success(self):
+        """Test successful product creation."""
+        # Setup mock
+        self.mock_product_service.create_product.return_value = self.product
+        
+        # Request data
+        create_data = {
+            'name': 'Test Product',
+            'description': 'A test product for testing',
+            'price': '99.99',
+            'stock_quantity': 10,
+            'category': 1
         }
         
-        response = self.client.post(url, data, format='json')
+        # Create request
+        request = self.factory.post('/products/', create_data, format='json')
         
+        # Mock request.data for the test
+        request.data = create_data
+        
+        # Call ViewSet method directly
+        response = self.viewset.create(request)
+        
+        # Assert service was called with correct data
+        self.mock_product_service.create_product.assert_called_once_with(create_data)
+        
+        # Assert response
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data['name'], 'New Product')
-        self.assertEqual(response.data['sku'], 'NEW001')
-        
-        # Verify product was created in database
-        product = Product.objects.get(sku='NEW001')
-        self.assertEqual(product.name, 'New Product')
+        self.assertEqual(response.data['name'], 'Test Product')
+        self.assertEqual(response.data['price'], '99.99')
     
-    def test_create_product_invalid_data(self):
-        """Test POST /api/products/ with invalid data."""
-        url = reverse('product-list')
-        data = {
-            'name': '',  # Invalid: empty name
-            'price': 'invalid_price',  # Invalid: not a number
-            'category': self.category.id,
-            'stock_quantity': -5,  # Invalid: negative stock
-            'sku': 'NEW001'
+    def test_create_product_validation_error(self):
+        """Test product creation with validation errors."""
+        # Setup mock to raise ValidationError
+        self.mock_product_service.create_product.side_effect = ValidationError("Name is required")
+        
+        # Request data (missing required field)
+        create_data = {
+            'description': 'A test product for testing',
+            'price': '99.99'
         }
         
-        response = self.client.post(url, data, format='json')
+        # Create request
+        request = self.factory.post('/products/', create_data, format='json')
         
+        # Mock request.data for the test
+        request.data = create_data
+        
+        # Call ViewSet method directly
+        response = self.viewset.create(request)
+        
+        # Assert service was called
+        self.mock_product_service.create_product.assert_called_once_with(create_data)
+        
+        # Assert error response
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('name', response.data)
-        self.assertIn('price', response.data)
-        self.assertIn('stock_quantity', response.data)
+        self.assertIn('error', response.data)
+        self.assertIn('Name is required', response.data['error'])
     
-    def test_create_product_duplicate_sku(self):
-        """Test POST /api/products/ with duplicate SKU."""
-        url = reverse('product-list')
-        data = {
-            'name': 'Duplicate Product',
-            'description': 'Duplicate Description',
-            'price': '199.99',
-            'category': self.category.id,
-            'stock_quantity': 5,
-            'sku': self.product.sku  # Use existing SKU
+    # UPDATE Tests (PUT /products/{id}/)
+    
+    def test_update_product_success(self):
+        """Test successful product update."""
+        # Setup mock
+        updated_product = Product(id=1, name='Updated Product', description='Updated description', price=Decimal('129.99'), stock_quantity=15, category=self.category)
+        self.mock_product_service.update_product.return_value = updated_product
+        
+        # Request data
+        update_data = {
+            'name': 'Updated Product',
+            'description': 'Updated description',
+            'price': '129.99',
+            'stock_quantity': 15
         }
         
-        response = self.client.post(url, data, format='json')
+        # Create request
+        request = self.factory.put('/products/1/', update_data, format='json')
         
+        # Mock request.data for the test
+        request.data = update_data
+        
+        # Call ViewSet method directly
+        response = self.viewset.update(request, pk='1')
+        
+        # Assert service was called with correct parameters
+        self.mock_product_service.update_product.assert_called_once_with('1', update_data)
+        
+        # Assert response
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['name'], 'Updated Product')
+        self.assertEqual(response.data['price'], '129.99')
+    
+    def test_update_product_not_found(self):
+        """Test update of non-existent product."""
+        # Setup mock to raise ValueError
+        self.mock_product_service.update_product.side_effect = ValueError("Product with id 999 not found")
+        
+        # Request data
+        update_data = {
+            'name': 'Updated Product',
+            'description': 'Updated description'
+        }
+        
+        # Create request
+        request = self.factory.put('/products/999/', update_data, format='json')
+        
+        # Mock request.data for the test
+        request.data = update_data
+        
+        # Call ViewSet method directly
+        response = self.viewset.update(request, pk='999')
+        
+        # Assert service was called
+        self.mock_product_service.update_product.assert_called_once_with('999', update_data)
+        
+        # Assert error response
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn('error', response.data)
+        self.assertIn('Product with id 999 not found', response.data['error'])
+    
+    def test_update_product_validation_error(self):
+        """Test product update with validation errors."""
+        # Setup mock to raise ValidationError
+        self.mock_product_service.update_product.side_effect = ValidationError("Price cannot be negative")
+        
+        # Request data (invalid data)
+        update_data = {
+            'name': 'Updated Product',
+            'price': '-10.00'  # Negative price should fail validation
+        }
+        
+        # Create request
+        request = self.factory.put('/products/1/', update_data, format='json')
+        
+        # Mock request.data for the test
+        request.data = update_data
+        
+        # Call ViewSet method directly
+        response = self.viewset.update(request, pk='1')
+        
+        # Assert service was called
+        self.mock_product_service.update_product.assert_called_once_with('1', update_data)
+        
+        # Assert error response
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('error', response.data)
+        self.assertIn('Price cannot be negative', response.data['error'])
     
-    def test_update_product(self):
-        """Test PUT /api/products/{id}/ endpoint."""
-        url = reverse('product-detail', args=[self.product.id])
-        data = {
-            'name': 'Updated Product Name',
-            'description': 'Updated Description',
-            'price': '299.99',
-            'category': self.category.id,
-            'stock_quantity': 15,
-            'sku': self.product.sku
-        }
-        
-        response = self.client.put(url, data, format='json')
-        
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['name'], 'Updated Product Name')
-        self.assertEqual(response.data['price'], '299.99')
-        
-        # Verify product was updated in database
-        updated_product = Product.objects.get(id=self.product.id)
-        self.assertEqual(updated_product.name, 'Updated Product Name')
-        self.assertEqual(updated_product.price, Decimal('299.99'))
+    # DELETE Tests (DELETE /products/{id}/)
     
-    def test_partial_update_product(self):
-        """Test PATCH /api/products/{id}/ endpoint."""
-        url = reverse('product-detail', args=[self.product.id])
-        data = {
-            'name': 'Partially Updated Name',
-            'price': '399.99'
-        }
+    def test_delete_product_success(self):
+        """Test successful product deletion."""
+        # Setup mock
+        self.mock_product_service.delete_product.return_value = True
         
-        response = self.client.patch(url, data, format='json')
+        # Create request
+        request = self.factory.delete('/products/1/')
         
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['name'], 'Partially Updated Name')
-        self.assertEqual(response.data['price'], '399.99')
+        # Mock request.data for the test
+        request.data = {}
         
-        # Verify only specified fields were updated
-        updated_product = Product.objects.get(id=self.product.id)
-        self.assertEqual(updated_product.name, 'Partially Updated Name')
-        self.assertEqual(updated_product.price, Decimal('399.99'))
-        self.assertEqual(updated_product.description, self.product.description)  # Unchanged
-    
-    def test_delete_product(self):
-        """Test DELETE /api/products/{id}/ endpoint."""
-        url = reverse('product-detail', args=[self.product.id])
-        response = self.client.delete(url)
+        # Call ViewSet method directly
+        response = self.viewset.destroy(request, pk='1')
         
+        # Assert service was called with correct ID
+        self.mock_product_service.delete_product.assert_called_once_with('1')
+        
+        # Assert response
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        
-        # Verify product was deleted from database
-        with self.assertRaises(Product.DoesNotExist):
-            Product.objects.get(id=self.product.id)
     
     def test_delete_product_not_found(self):
-        """Test DELETE /api/products/{id}/ with non-existent product."""
-        url = reverse('product-detail', args=[99999])
-        response = self.client.delete(url)
+        """Test deletion of non-existent product."""
+        # Setup mock to raise ValueError
+        self.mock_product_service.delete_product.side_effect = ValueError("Product with id 999 not found")
         
+        # Create request
+        request = self.factory.delete('/products/999/')
+        
+        # Mock request.data for the test
+        request.data = {}
+        
+        # Call ViewSet method directly
+        response = self.viewset.destroy(request, pk='999')
+        
+        # Assert service was called
+        self.mock_product_service.delete_product.assert_called_once_with('999')
+        
+        # Assert error response
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-
-class CategoryViewSetTest(APITestCase):
-    """Tests for CategoryViewSet API endpoints."""
+        self.assertIn('error', response.data)
+        self.assertIn('Product with id 999 not found', response.data['error'])
     
-    def setUp(self):
-        """Set up test data."""
-        self.user = UserFactory.create()
-        self.category = CategoryFactory.create(name="Electronics")
-    
-    def test_list_categories(self):
-        """Test GET /api/categories/ endpoint."""
-        # Create test categories
-        for i in range(2):
-            CategoryFactory.create()
+    def test_delete_product_failure(self):
+        """Test product deletion when service returns False."""
+        # Setup mock to return False (deletion failed)
+        self.mock_product_service.delete_product.return_value = False
         
-        url = reverse('category-list')
-        response = self.client.get(url)
+        # Create request
+        request = self.factory.delete('/products/1/')
         
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 3)  # 1 from setUp + 2 new ones
-    
-    def test_retrieve_category(self):
-        """Test GET /api/categories/{id}/ endpoint."""
-        url = reverse('category-detail', args=[self.category.id])
-        response = self.client.get(url)
+        # Mock request.data for the test
+        request.data = {}
         
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['name'], self.category.name)
-    
-    def test_create_category(self):
-        """Test POST /api/categories/ endpoint."""
-        url = reverse('category-list')
-        data = {
-            'name': 'New Category',
-            'description': 'New Category Description'
-        }
+        # Call ViewSet method directly
+        response = self.viewset.destroy(request, pk='1')
         
-        response = self.client.post(url, data, format='json')
+        # Assert service was called
+        self.mock_product_service.delete_product.assert_called_once_with('1')
         
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data['name'], 'New Category')
-        
-        # Verify category was created in database
-        category = Category.objects.get(name='New Category')
-        self.assertEqual(category.description, 'New Category Description')
-    
-    def test_update_category(self):
-        """Test PUT /api/categories/{id}/ endpoint."""
-        url = reverse('category-detail', args=[self.category.id])
-        data = {
-            'name': 'Updated Category Name',
-            'description': 'Updated Description'
-        }
-        
-        response = self.client.put(url, data, format='json')
-        
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['name'], 'Updated Category Name')
-    
-    def test_delete_category(self):
-        """Test DELETE /api/categories/{id}/ endpoint."""
-        url = reverse('category-detail', args=[self.category.id])
-        response = self.client.delete(url)
-        
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        
-        # Verify category was deleted from database
-        with self.assertRaises(Category.DoesNotExist):
-            Category.objects.get(id=self.category.id)
-
-
-class ProductReviewViewSetTest(APITestCase):
-    """Tests for ProductReviewViewSet API endpoints."""
-    
-    def setUp(self):
-        """Set up test data."""
-        self.user = UserFactory.create()
-        self.category = CategoryFactory.create(name="Electronics")
-        self.product = ProductFactory.create(category=self.category)
-        self.review = ProductReviewFactory.create(
-            product=self.product,
-            user=self.user,
-            rating=4,
-            comment='Great product!'
-        )
-    
-    def test_list_reviews(self):
-        """Test GET /api/reviews/ endpoint."""
-        # Create test reviews
-        for i in range(2):
-            ProductReviewFactory.create(product=self.product)
-        
-        url = reverse('review-list')
-        response = self.client.get(url)
-        
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 3)  # 1 from setUp + 2 new ones
-    
-    def test_retrieve_review(self):
-        """Test GET /api/reviews/{id}/ endpoint."""
-        url = reverse('review-detail', args=[self.review.id])
-        response = self.client.get(url)
-        
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['rating'], self.review.rating)
-        self.assertEqual(response.data['comment'], self.review.comment)
-        self.assertEqual(response.data['product'], self.product.id)
-        self.assertEqual(response.data['user'], self.user.id)
-    
-    def test_create_review(self):
-        """Test POST /api/reviews/ endpoint."""
-        url = reverse('review-list')
-        data = {
-            'product': self.product.id,
-            'user': self.user.id,
-            'rating': 5,
-            'comment': 'Excellent product!'
-        }
-        
-        response = self.client.post(url, data, format='json')
-        
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data['rating'], 5)
-        self.assertEqual(response.data['comment'], 'Excellent product!')
-        
-        # Verify review was created in database
-        review = ProductReview.objects.get(id=response.data['id'])
-        self.assertEqual(review.rating, 5)
-        self.assertEqual(review.product, self.product)
-        self.assertEqual(review.user, self.user)
-    
-    def test_create_review_invalid_rating(self):
-        """Test POST /api/reviews/ with invalid rating."""
-        url = reverse('review-list')
-        data = {
-            'product': self.product.id,
-            'user': self.user.id,
-            'rating': 6,  # Invalid: above maximum
-            'comment': 'Invalid rating'
-        }
-        
-        response = self.client.post(url, data, format='json')
-        
+        # Assert error response
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('rating', response.data)
+        self.assertIn('error', response.data)
+        self.assertIn('Failed to delete product', response.data['error'])
     
-    def test_update_review(self):
-        """Test PUT /api/reviews/{id}/ endpoint."""
-        url = reverse('review-detail', args=[self.review.id])
-        data = {
-            'product': self.product.id,
-            'user': self.user.id,
-            'rating': 5,
-            'comment': 'Updated comment!'
-        }
+    # CUSTOM ACTION Tests
+    
+    def test_update_stock_success(self):
+        """Test successful stock update via custom action."""
+        # Setup mock
+        updated_product = Product(id=1, name='Test Product', description='A test product', price=Decimal('99.99'), stock_quantity=50, category=self.category)
+        self.mock_product_service.update_product_stock.return_value = {'success': True, 'product': updated_product}
         
-        response = self.client.put(url, data, format='json')
+        # Request data
+        stock_data = {'stock_quantity': 50}
         
+        # Create request
+        request = self.factory.post('/products/1/update_stock/', stock_data, format='json')
+        
+        # Mock request.data for the test
+        request.data = stock_data
+        
+        # Call ViewSet method directly
+        response = self.viewset.update_stock(request, pk='1')
+        
+        # Assert service was called with correct parameters
+        self.mock_product_service.update_product_stock.assert_called_once_with('1', 50)
+        
+        # Assert response
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['rating'], 5)
-        self.assertEqual(response.data['comment'], 'Updated comment!')
+        self.assertIn('success', response.data)
     
-    def test_delete_review(self):
-        """Test DELETE /api/reviews/{id}/ endpoint."""
-        url = reverse('review-detail', args=[self.review.id])
-        response = self.client.delete(url)
+    def test_update_stock_missing_quantity(self):
+        """Test stock update with missing stock_quantity."""
+        # Create request without stock_quantity
+        request = self.factory.post('/products/1/update_stock/', {}, format='json')
         
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        # Mock request.data for the test
+        request.data = {}
         
-        # Verify review was deleted from database
-        with self.assertRaises(ProductReview.DoesNotExist):
-            ProductReview.objects.get(id=self.review.id)
+        # Call ViewSet method directly
+        response = self.viewset.update_stock(request, pk='1')
+        
+        # Assert error response
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('error', response.data)
+        self.assertIn('stock_quantity is required', response.data['error'])
+    
+    def test_update_stock_invalid_quantity(self):
+        """Test stock update with invalid stock_quantity."""
+        # Create request with invalid stock_quantity
+        request = self.factory.post('/products/1/update_stock/', {'stock_quantity': 'invalid'}, format='json')
+        
+        # Mock request.data for the test
+        request.data = {'stock_quantity': 'invalid'}
+        
+        # Call ViewSet method directly
+        response = self.viewset.update_stock(request, pk='1')
+        
+        # Assert error response
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('error', response.data)
+        self.assertIn('stock_quantity must be a number', response.data['error'])
+    
+    def test_update_stock_negative_quantity(self):
+        """Test stock update with negative stock_quantity."""
+        # Create request with negative stock_quantity
+        request = self.factory.post('/products/1/update_stock/', {'stock_quantity': -10}, format='json')
+        
+        # Mock request.data for the test
+        request.data = {'stock_quantity': -10}
+        
+        # Call ViewSet method directly
+        response = self.viewset.update_stock(request, pk='1')
+        
+        # Assert error response
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('error', response.data)
+        self.assertIn('stock_quantity cannot be negative', response.data['error'])
+    
+    # Dependency Injection Tests
+    
+    def test_default_service_creation(self):
+        """Test that ViewSet creates default services when none provided."""
+        # Create ViewSet without injecting services
+        viewset = ProductViewSet()
+        
+        # Verify default services were created
+        self.assertIsNotNone(viewset.product_service)
+        self.assertIsNotNone(viewset.category_service)
+        self.assertIsNotNone(viewset.review_service)
+        
+        # In production, these should be real service instances
+        from products.services import ProductService, CategoryService, ReviewService
+        self.assertIsInstance(viewset.product_service, ProductService)
+        self.assertIsInstance(viewset.category_service, CategoryService)
+        self.assertIsInstance(viewset.review_service, ReviewService)
+    
+    def test_injected_service_usage(self):
+        """Test that injected services are used instead of defaults."""
+        # Create ViewSet with injected services
+        viewset = ProductViewSet(
+            product_service=self.mock_product_service,
+            category_service=self.mock_category_service,
+            review_service=self.mock_review_service
+        )
+        
+        # Verify injected services are used
+        self.assertEqual(viewset.product_service, self.mock_product_service)
+        self.assertEqual(viewset.category_service, self.mock_category_service)
+        self.assertEqual(viewset.review_service, self.mock_review_service)
 
 
-class APIIntegrationTest(APITestCase):
-    """Integration tests for complete API workflows."""
+class ProductReviewViewSetTest(TestCase):
+    """Test cases for ProductReviewViewSet class with dependency injection."""
     
     def setUp(self):
-        """Set up test data."""
-        self.user = UserFactory.create()
-        self.category = CategoryFactory.create(name="Electronics")
-    
-    def test_complete_product_workflow(self):
-        """Test complete product workflow through API."""
-        # 1. Create a category
-        category_url = reverse('category-list')
-        category_data = {'name': 'Test Category', 'description': 'Test Description'}
-        category_response = self.client.post(category_url, category_data, format='json')
-        self.assertEqual(category_response.status_code, status.HTTP_201_CREATED)
-        category_id = category_response.data['id']
-        
-        # 2. Create a product in that category
-        product_url = reverse('product-list')
-        product_data = {
-            'name': 'Test Product',
-            'description': 'Test Description',
-            'price': '199.99',
-            'category': category_id,
-            'stock_quantity': 10,
-            'sku': 'TEST001'
+        """Set up test data and mocked services for each test."""
+        # Create test data for mocking
+        self.user_data = {
+            'id': 1,
+            'username': 'testuser',
+            'email': 'test@example.com'
         }
-        product_response = self.client.post(product_url, product_data, format='json')
-        self.assertEqual(product_response.status_code, status.HTTP_201_CREATED)
-        product_id = product_response.data['id']
         
-        # 3. Create a review for the product
-        review_url = reverse('review-list')
-        review_data = {
-            'product': product_id,
-            'user': self.user.id,
+        self.user = User(**self.user_data)
+        
+        self.category_data = {
+            'id': 1,
+            'name': 'Electronics',
+            'description': 'Electronic devices and gadgets'
+        }
+        
+        self.category = Category(**self.category_data)
+        
+        self.product_data = {
+            'id': 1,
+            'name': 'Test Product',
+            'description': 'A test product for testing',
+            'price': Decimal('99.99'),
+            'stock_quantity': 10,
+            'category': self.category
+        }
+        
+        self.product = Product(**self.product_data)
+        
+        self.review_data = {
+            'id': 1,
+            'product': self.product,
+            'user': self.user,
+            'rating': 5,
+            'comment': 'Great product!',
+            'created_at': '2024-01-15T10:00:00Z'
+        }
+        
+        self.review = ProductReview(**self.review_data)
+        
+        # Mock data for list operations
+        self.reviews_list = [
+            ProductReview(id=1, product=self.product, user=self.user, rating=5, comment='Great product!'),
+            ProductReview(id=2, product=self.product, user=self.user, rating=4, comment='Good product!')
+        ]
+        
+        # Create mocked services
+        self.mock_review_service = MagicMock()
+        self.mock_product_service = MagicMock()
+        
+        # Create ViewSet with injected services
+        self.viewset = ProductReviewViewSet(
+            review_service=self.mock_review_service,
+            product_service=self.mock_product_service
+        )
+        
+        # Create request factory for testing ViewSet methods directly
+        self.factory = APIRequestFactory()
+        
+        # Set up test client for HTTP-level testing
+        self.client = APIClient()
+    
+    # LIST Tests (GET /reviews/)
+    
+    def test_list_reviews_success(self):
+        """Test successful retrieval of all reviews."""
+        # Setup mock
+        self.mock_review_service.get_all_reviews.return_value = self.reviews_list
+        
+        # Create request
+        request = self.factory.get('/reviews/')
+        
+        # Mock request attributes for the test
+        request.data = {}
+        request.query_params = {}
+        
+        # Call ViewSet method directly
+        response = self.viewset.list(request)
+        
+        # Assert service was called
+        self.mock_review_service.get_all_reviews.assert_called_once()
+        
+        # Assert response
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 2)
+        self.assertEqual(response.data[0]['rating'], 5)
+        self.assertEqual(response.data[1]['rating'], 4)
+    
+    def test_list_reviews_by_product(self):
+        """Test successful retrieval of reviews filtered by product."""
+        # Setup mock
+        self.mock_review_service.get_reviews_by_product.return_value = self.reviews_list
+        
+        # Create request with product filter
+        request = self.factory.get('/reviews/?product=1')
+        
+        # Mock request attributes for the test
+        request.data = {}
+        request.query_params = {'product': '1'}
+        
+        # Call ViewSet method directly
+        response = self.viewset.list(request)
+        
+        # Assert service was called with correct product ID
+        self.mock_review_service.get_reviews_by_product.assert_called_once_with('1')
+        
+        # Assert response
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 2)
+    
+    # RETRIEVE Tests (GET /reviews/{id}/)
+    
+    def test_retrieve_review_success(self):
+        """Test successful retrieval of single review."""
+        # Setup mock
+        self.mock_review_service.get_review_by_id.return_value = self.review
+        
+        # Create request
+        request = self.factory.get('/reviews/1/')
+        
+        # Mock request attributes for the test
+        request.data = {}
+        
+        # Call ViewSet method directly
+        response = self.viewset.retrieve(request, pk='1')
+        
+        # Assert service was called with correct ID
+        self.mock_review_service.get_review_by_id.assert_called_once_with('1')
+        
+        # Assert response
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['rating'], 5)
+        self.assertEqual(response.data['comment'], 'Great product!')
+    
+    def test_retrieve_review_not_found(self):
+        """Test handling of non-existent review ID."""
+        # Setup mock to raise ValueError
+        self.mock_review_service.get_review_by_id.side_effect = ValueError("Review with id 999 not found")
+        
+        # Create request
+        request = self.factory.get('/reviews/999/')
+        
+        # Mock request attributes for the test
+        request.data = {}
+        
+        # Call ViewSet method directly
+        response = self.viewset.retrieve(request, pk='999')
+        
+        # Assert service was called
+        self.mock_review_service.get_review_by_id.assert_called_once_with('999')
+        
+        # Assert error response
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn('error', response.data)
+        self.assertIn('Review with id 999 not found', response.data['error'])
+    
+    # CREATE Tests (POST /reviews/)
+    
+    def test_create_review_success(self):
+        """Test successful review creation."""
+        # Setup mocks
+        self.mock_review_service.validate_review.return_value = None  # No validation errors
+        self.mock_review_service.create_review.return_value = self.review
+        
+        # Request data
+        create_data = {
+            'product': 1,
             'rating': 5,
             'comment': 'Great product!'
         }
-        review_response = self.client.post(review_url, review_data, format='json')
-        self.assertEqual(review_response.status_code, status.HTTP_201_CREATED)
         
-        # 4. Retrieve the product and verify it has the review
-        product_detail_url = reverse('product-detail', args=[product_id])
-        product_response = self.client.get(product_detail_url)
-        self.assertEqual(product_response.status_code, status.HTTP_200_OK)
+        # Create request
+        request = self.factory.post('/reviews/', create_data, format='json')
         
-        # 5. Update the product
-        update_data = {'name': 'Updated Product Name'}
-        update_response = self.client.patch(product_detail_url, update_data, format='json')
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(update_response.data['name'], 'Updated Product Name')
+        # Mock request attributes for the test
+        request.data = create_data
         
-        # 6. Delete the product (should cascade to review)
-        delete_response = self.client.delete(product_detail_url)
-        self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
+        # Call ViewSet method directly
+        response = self.viewset.create(request)
         
-        # Verify product and review were deleted
-        with self.assertRaises(Product.DoesNotExist):
-            Product.objects.get(id=product_id)
-        with self.assertRaises(ProductReview.DoesNotExist):
-            ProductReview.objects.get(id=review_response.data['id'])
+        # Assert services were called with correct data
+        self.mock_review_service.validate_review.assert_called_once_with(create_data)
+        self.mock_review_service.create_review.assert_called_once_with(create_data)
+        
+        # Assert response
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['rating'], 5)
+        self.assertEqual(response.data['comment'], 'Great product!')
+    
+    def test_create_review_validation_error(self):
+        """Test review creation with validation errors."""
+        # Setup mock to raise ValidationError
+        self.mock_review_service.validate_review.side_effect = ValidationError("Rating must be between 1 and 5")
+        
+        # Request data (invalid data)
+        create_data = {
+            'product': 1,
+            'rating': 6,  # Invalid rating
+            'comment': 'Great product!'
+        }
+        
+        # Create request
+        request = self.factory.post('/reviews/', create_data, format='json')
+        
+        # Mock request attributes for the test
+        request.data = create_data
+        
+        # Call ViewSet method directly
+        response = self.viewset.create(request)
+        
+        # Assert validation service was called
+        self.mock_review_service.validate_review.assert_called_once_with(create_data)
+        
+        # Assert error response
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('error', response.data)
+        self.assertIn('Rating must be between 1 and 5', response.data['error'])
+    
+    # UPDATE Tests (PUT /reviews/{id}/)
+    
+    def test_update_review_success(self):
+        """Test successful review update."""
+        # Setup mocks
+        self.mock_review_service.validate_review.return_value = None  # No validation errors
+        updated_review = ProductReview(id=1, product=self.product, user=self.user, rating=4, comment='Updated comment')
+        self.mock_review_service.update_review.return_value = updated_review
+        
+        # Request data
+        update_data = {
+            'rating': 4,
+            'comment': 'Updated comment'
+        }
+        
+        # Create request
+        request = self.factory.put('/reviews/1/', update_data, format='json')
+        
+        # Mock request attributes for the test
+        request.data = update_data
+        
+        # Call ViewSet method directly
+        response = self.viewset.update(request, pk='1')
+        
+        # Assert services were called with correct parameters
+        self.mock_review_service.validate_review.assert_called_once_with(update_data)
+        self.mock_review_service.update_review.assert_called_once_with('1', update_data)
+        
+        # Assert response
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['rating'], 4)
+        self.assertEqual(response.data['comment'], 'Updated comment')
+    
+    def test_update_review_not_found(self):
+        """Test update of non-existent review."""
+        # Setup mocks
+        self.mock_review_service.validate_review.return_value = None  # No validation errors
+        self.mock_review_service.update_review.side_effect = ValueError("Review with id 999 not found")
+        
+        # Request data
+        update_data = {
+            'rating': 4,
+            'comment': 'Updated comment'
+        }
+        
+        # Create request
+        request = self.factory.put('/reviews/999/', update_data, format='json')
+        
+        # Mock request attributes for the test
+        request.data = update_data
+        
+        # Call ViewSet method directly
+        response = self.viewset.update(request, pk='999')
+        
+        # Assert services were called
+        self.mock_review_service.validate_review.assert_called_once_with(update_data)
+        self.mock_review_service.update_review.assert_called_once_with('999', update_data)
+        
+        # Assert error response
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn('error', response.data)
+        self.assertIn('Review with id 999 not found', response.data['error'])
+    
+    def test_update_review_validation_error(self):
+        """Test review update with validation errors."""
+        # Setup mock to raise ValidationError
+        self.mock_review_service.validate_review.side_effect = ValidationError("Rating cannot be negative")
+        
+        # Request data (invalid data)
+        update_data = {
+            'rating': -1,  # Negative rating should fail validation
+            'comment': 'Updated comment'
+        }
+        
+        # Create request
+        request = self.factory.put('/reviews/1/', update_data, format='json')
+        
+        # Mock request attributes for the test
+        request.data = update_data
+        
+        # Call ViewSet method directly
+        response = self.viewset.update(request, pk='1')
+        
+        # Assert validation service was called
+        self.mock_review_service.validate_review.assert_called_once_with(update_data)
+        
+        # Assert error response
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('error', response.data)
+        self.assertIn('Rating cannot be negative', response.data['error'])
+    
+    # DELETE Tests (DELETE /reviews/{id}/)
+    
+    def test_delete_review_success(self):
+        """Test successful review deletion."""
+        # Setup mock
+        self.mock_review_service.delete_review.return_value = True
+        
+        # Create request
+        request = self.factory.delete('/reviews/1/')
+        
+        # Mock request attributes for the test
+        request.data = {}
+        
+        # Call ViewSet method directly
+        response = self.viewset.destroy(request, pk='1')
+        
+        # Assert service was called with correct ID
+        self.mock_review_service.delete_review.assert_called_once_with('1')
+        
+        # Assert response
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+    
+    def test_delete_review_not_found(self):
+        """Test deletion of non-existent review."""
+        # Setup mock to raise ValueError
+        self.mock_review_service.delete_review.side_effect = ValueError("Review with id 999 not found")
+        
+        # Create request
+        request = self.factory.delete('/reviews/999/')
+        
+        # Mock request attributes for the test
+        request.data = {}
+        
+        # Call ViewSet method directly
+        response = self.viewset.destroy(request, pk='999')
+        
+        # Assert service was called
+        self.mock_review_service.delete_review.assert_called_once_with('999')
+        
+        # Assert error response
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn('error', response.data)
+        self.assertIn('Review with id 999 not found', response.data['error'])
+    
+    def test_delete_review_failure(self):
+        """Test review deletion when service returns False."""
+        # Setup mock to return False (deletion failed)
+        self.mock_review_service.delete_review.return_value = False
+        
+        # Create request
+        request = self.factory.delete('/reviews/1/')
+        
+        # Mock request attributes for the test
+        request.data = {}
+        
+        # Call ViewSet method directly
+        response = self.viewset.destroy(request, pk='1')
+        
+        # Assert service was called
+        self.mock_review_service.delete_review.assert_called_once_with('1')
+        
+        # Assert error response
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('error', response.data)
+        self.assertIn('Failed to delete review', response.data['error'])
+    
+    # Dependency Injection Tests
+    
+    def test_default_service_creation(self):
+        """Test that ViewSet creates default services when none provided."""
+        # Create ViewSet without injecting services
+        viewset = ProductReviewViewSet()
+        
+        # Verify default services were created
+        self.assertIsNotNone(viewset.review_service)
+        self.assertIsNotNone(viewset.product_service)
+        
+        # In production, these should be real service instances
+        from products.services import ReviewService, ProductService
+        self.assertIsInstance(viewset.review_service, ReviewService)
+        self.assertIsInstance(viewset.product_service, ProductService)
+    
+    def test_injected_service_usage(self):
+        """Test that injected services are used instead of defaults."""
+        # Create ViewSet with injected services
+        viewset = ProductReviewViewSet(
+            review_service=self.mock_review_service,
+            product_service=self.mock_product_service
+        )
+        
+        # Verify injected services are used
+        self.assertEqual(viewset.review_service, self.mock_review_service)
+        self.assertEqual(viewset.product_service, self.mock_product_service)

@@ -17,6 +17,64 @@ class ProductService:
         """
         self.product_repository = product_repository
     
+    def get_product_by_id(self, product_id):
+        """
+        Get product by ID.
+        
+        Args:
+            product_id: ID of the product to retrieve
+            
+        Returns:
+            Product: The product object
+            
+        Raises:
+            ValueError: If product not found
+        """
+        return self.product_repository.get_by_id(product_id)
+    
+    def create_product(self, product_data):
+        """
+        Create a new product.
+        
+        Args:
+            product_data: Dictionary containing product data
+            
+        Returns:
+            Product: The created product object
+        """
+        return self.product_repository.create(**product_data)
+    
+    def update_product(self, product_id, product_data):
+        """
+        Update an existing product.
+        
+        Args:
+            product_id: ID of the product to update
+            product_data: Dictionary containing updated product data
+            
+        Returns:
+            Product: The updated product object
+            
+        Raises:
+            ValueError: If product not found
+        """
+        return self.product_repository.update(product_id, **product_data)
+    
+    def delete_product(self, product_id):
+        """
+        Delete a product.
+        
+        Args:
+            product_id: ID of the product to delete
+            
+        Returns:
+            bool: True if deletion was successful
+            
+        Raises:
+            ValueError: If product not found
+        """
+        return self.product_repository.delete(product_id)
+    
     def update_product_stock(self, product_id, new_stock):
         """
         Update product stock quantity with validation.
@@ -151,6 +209,73 @@ class CategoryService:
         """
         self.category_repository = category_repository
     
+    def get_all_categories(self):
+        """
+        Get all categories.
+        
+        Returns:
+            QuerySet: All categories
+        """
+        return self.category_repository.get_all()
+    
+    def get_category_by_id(self, category_id):
+        """
+        Get category by ID.
+        
+        Args:
+            category_id: ID of the category to retrieve
+            
+        Returns:
+            Category: The category object
+            
+        Raises:
+            ValueError: If category not found
+        """
+        return self.category_repository.get_by_id(category_id)
+    
+    def create_category(self, category_data):
+        """
+        Create a new category.
+        
+        Args:
+            category_data: Dictionary containing category data
+            
+        Returns:
+            Category: The created category object
+        """
+        return self.category_repository.create(**category_data)
+    
+    def update_category(self, category_id, category_data):
+        """
+        Update an existing category.
+        
+        Args:
+            category_id: ID of the category to update
+            category_data: Dictionary containing updated category data
+            
+        Returns:
+            Category: The updated category object
+            
+        Raises:
+            ValueError: If category not found
+        """
+        return self.category_repository.update(category_id, **category_data)
+    
+    def delete_category(self, category_id):
+        """
+        Delete a category.
+        
+        Args:
+            category_id: ID of the category to delete
+            
+        Returns:
+            bool: True if deletion was successful
+            
+        Raises:
+            ValueError: If category not found
+        """
+        return self.category_repository.delete(category_id)
+    
     def validate_category(self, category_data):
         """
         Validate category business rules.
@@ -182,6 +307,73 @@ class ReviewService:
             review_repository: Repository for review data access
         """
         self.review_repository = review_repository
+    
+    def get_all_reviews(self):
+        """
+        Get all reviews.
+        
+        Returns:
+            QuerySet: All reviews
+        """
+        return self.review_repository.get_all()
+    
+    def get_review_by_id(self, review_id):
+        """
+        Get review by ID.
+        
+        Args:
+            review_id: ID of the review to retrieve
+            
+        Returns:
+            ProductReview: The review object
+            
+        Raises:
+            ValueError: If review not found
+        """
+        return self.review_repository.get_by_id(review_id)
+    
+    def create_review(self, review_data):
+        """
+        Create a new review.
+        
+        Args:
+            review_data: Dictionary containing review data
+            
+        Returns:
+            ProductReview: The created review object
+        """
+        return self.review_repository.create(**review_data)
+    
+    def update_review(self, review_id, review_data):
+        """
+        Update an existing review.
+        
+        Args:
+            review_id: ID of the review to update
+            review_data: Dictionary containing updated review data
+            
+        Returns:
+            ProductReview: The updated review object
+            
+        Raises:
+            ValueError: If review not found
+        """
+        return self.review_repository.update(review_id, **review_data)
+    
+    def delete_review(self, review_id):
+        """
+        Delete a review.
+        
+        Args:
+            review_id: ID of the review to delete
+            
+        Returns:
+            bool: True if deletion was successful
+            
+        Raises:
+            ValueError: If review not found
+        """
+        return self.review_repository.delete(review_id)
     
     def validate_review(self, review_data):
         """
