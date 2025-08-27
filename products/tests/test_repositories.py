@@ -31,7 +31,8 @@ class ProductRepositoryTest(TestCase):
             description="A test product for testing",
             price=Decimal('99.99'),
             stock_quantity=10,
-            category=self.category
+            category=self.category,
+            sku="TEST123"
         )
         
         # Create repository instance
@@ -46,7 +47,8 @@ class ProductRepositoryTest(TestCase):
             'description': 'A new test product',
             'price': Decimal('149.99'),
             'stock_quantity': 25,
-            'category': self.category
+            'category': self.category,
+            'sku': 'NEW123'
         }
         
         created_product = self.repository.create(**product_data)
@@ -160,7 +162,8 @@ class ProductRepositoryTest(TestCase):
             description="Another test product",
             price=Decimal('199.99'),
             stock_quantity=5,
-            category=self.category
+            category=self.category,
+            sku='SECOND123'
         )
         
         all_products = self.repository.get_all()
@@ -176,7 +179,8 @@ class ProductRepositoryTest(TestCase):
             description="An affordable product",
             price=Decimal('19.99'),
             stock_quantity=100,
-            category=self.category
+            category=self.category,
+            sku='CHEAP123'
         )
         
         expensive_product = Product.objects.create(
@@ -184,7 +188,8 @@ class ProductRepositoryTest(TestCase):
             description="A luxury product",
             price=Decimal('299.99'),
             stock_quantity=2,
-            category=self.category
+            category=self.category,
+            sku='EXPENSIVE123'
         )
         
         # Test price range 20-100
@@ -205,7 +210,8 @@ class ProductRepositoryTest(TestCase):
             description="Product with low stock",
             price=Decimal('49.99'),
             stock_quantity=3,
-            category=self.category
+            category=self.category,
+            sku='LOWSTOCK123'
         )
         
         high_stock_product = Product.objects.create(
@@ -213,7 +219,8 @@ class ProductRepositoryTest(TestCase):
             description="Product with high stock",
             price=Decimal('79.99'),
             stock_quantity=50,
-            category=self.category
+            category=self.category,
+            sku='HIGHSTOCK123'
         )
         
         # Test threshold of 5 (should include products with stock <= 5)
@@ -234,7 +241,8 @@ class ProductRepositoryTest(TestCase):
             description="High-performance gaming computer",
             price=Decimal('1299.99'),
             stock_quantity=4,
-            category=self.category
+            category=self.category,
+            sku='GAMING123'
         )
         
         Product.objects.create(
@@ -242,7 +250,8 @@ class ProductRepositoryTest(TestCase):
             description="Reliable office laptop for work",
             price=Decimal('599.99'),
             stock_quantity=10,
-            category=self.category
+            category=self.category,
+            sku='OFFICE123'
         )
         
         # Search for "laptop" (should find both by name and description)
@@ -422,7 +431,8 @@ class ProductReviewRepositoryTest(TestCase):
             description="A test product for testing",
             price=Decimal('99.99'),
             stock_quantity=10,
-            category=self.category
+            category=self.category,
+            sku="TESTREVIEW123"
         )
         
         # Create test user
@@ -568,7 +578,8 @@ class ProductReviewRepositoryTest(TestCase):
             description="Another test product",
             price=Decimal('149.99'),
             stock_quantity=5,
-            category=self.category
+            category=self.category,
+            sku='SECOND_REVIEW123'
         )
         
         second_review = ProductReview.objects.create(
