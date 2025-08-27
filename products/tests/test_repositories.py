@@ -5,11 +5,13 @@ from django.test import TestCase
 from django.db import IntegrityError
 from decimal import Decimal
 from django.contrib.auth.models import User
-from products.models import Category, Product
+from products.models import Category, Product, ProductDiscount
 from products.repositories import ProductRepository
 from products.repositories import CategoryRepository
 from products.models import ProductReview
 from products.repositories import ProductReviewRepository
+from django.utils import timezone
+from datetime import timedelta
 
 
 class ProductRepositoryTest(TestCase):
@@ -165,9 +167,7 @@ class ProductRepositoryTest(TestCase):
         
         self.assertEqual(all_products.count(), 2)
         self.assertIn(self.product, all_products)
-    
-
-    
+        
     def test_get_by_price_range(self):
         """Test filtering products by price range."""
         # Create products with different prices
@@ -225,11 +225,7 @@ class ProductRepositoryTest(TestCase):
         # Test threshold of 2 (should include only products with stock <= 2)
         very_low_stock_products = self.repository.get_low_stock(2)
         self.assertEqual(very_low_stock_products.count(), 0)
-    
-
-    
-
-    
+      
     def test_search_by_name_or_description(self):
         """Test searching products by name or description."""
         # Create products with searchable names and descriptions
@@ -264,6 +260,44 @@ class ProductRepositoryTest(TestCase):
         # Search for non-existent term
         no_results = self.repository.search_by_name_or_description("NonExistent")
         self.assertEqual(no_results.count(), 0)
+    
+    def test_get_products_with_active_discounts(self):
+        """Test retrieving products that have active discounts."""
+        now = timezone.now()
+        
+        # Create another product without discount
+        product_without_discount = Product.objects.create(
+            name="No Discount Product",
+            description="Product without any discount",
+            price=Decimal('50.00'),
+            stock_quantity=20,
+            category=self.category,
+            sku="NODISCOUNT123"
+        )
+        
+        # Create active discount for self.product
+        active_discount = ProductDiscount.objects.create(
+            product=self.product,
+            discount_percentage=20.00,
+            start_date=now - timedelta(hours=1),
+            end_date=now + timedelta(days=5),
+            is_active=True
+        )
+        
+        # Create expired discount for product_without_discount
+        expired_discount = ProductDiscount.objects.create(
+            product=product_without_discount,
+            discount_percentage=15.00,
+            start_date=now - timedelta(days=10),
+            end_date=now - timedelta(days=5),
+            is_active=True
+        )
+        
+        # Test method (this will fail until we implement it)
+        discounted_products = self.repository.get_products_with_active_discounts(now)
+        self.assertEqual(discounted_products.count(), 1)
+        self.assertIn(self.product, discounted_products)
+        self.assertNotIn(product_without_discount, discounted_products)
 
 
 class CategoryRepositoryTest(TestCase):

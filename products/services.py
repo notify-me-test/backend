@@ -192,6 +192,62 @@ class ProductService:
                 product.average_rating = 0
         
         return queryset
+    
+    def _get_active_discount_for_product(self, product_id, discount_repository):
+        """
+        Get active discount for a specific product.
+        
+        Args:
+            product_id: ID of the product
+            discount_repository: Repository for discount data access
+            
+        Returns:
+            ProductDiscount or None: The active discount for the product
+        """
+        from django.utils import timezone
+        current_date = timezone.now()
+        return discount_repository.get_active_discount_for_product(product_id, current_date)
+    
+    def _calculate_discounted_price(self, product, discount):
+        """
+        Calculate discounted price for a product.
+        
+        Args:
+            product: Product object
+            discount: ProductDiscount object or None
+            
+        Returns:
+            Decimal: The discounted price (or original price if no discount)
+        """
+        from decimal import Decimal
+        
+        if discount is None:
+            return product.price
+        
+        discount_percentage = Decimal(str(discount.discount_percentage))
+        discount_amount = product.price * (discount_percentage / 100)
+        return product.price - discount_amount
+    
+    def get_product_with_discount_price(self, product_id, discount_repository):
+        """
+        Get product with discount price calculation.
+        
+        Args:
+            product_id: ID of the product
+            discount_repository: Repository for discount data access
+            
+        Returns:
+            Product: Product with discount information attached
+        """
+        product = self.get_product_by_id(product_id)
+        active_discount = self._get_active_discount_for_product(product_id, discount_repository)
+        
+        # Add discount information to the product object
+        product.discounted_price = self._calculate_discounted_price(product, active_discount)
+        product.has_active_discount = active_discount is not None
+        product.discount_percentage = active_discount.discount_percentage if active_discount else 0
+        
+        return product
 
 
 class CategoryService:

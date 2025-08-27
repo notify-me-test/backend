@@ -41,3 +41,28 @@ class ProductReview(models.Model):
     
     def __str__(self):
         return f"{self.product.name} - {self.rating} stars"
+
+class ProductDiscount(models.Model):
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='discounts')
+    discount_percentage = models.DecimalField(max_digits=5, decimal_places=2)
+    start_date = models.DateTimeField()
+    end_date = models.DateTimeField()
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        
+        if self.discount_percentage is not None:
+            if self.discount_percentage < 0:
+                raise ValidationError("Discount percentage cannot be negative")
+            if self.discount_percentage > 100:
+                raise ValidationError("Discount percentage cannot exceed 100%")
+        
+        if self.start_date and self.end_date:
+            if self.end_date <= self.start_date:
+                raise ValidationError("End date must be after start date")
+    
+    def __str__(self):
+        return f"{self.product.name} - {self.discount_percentage}% discount"

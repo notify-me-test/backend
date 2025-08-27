@@ -76,6 +76,11 @@ backend/
 - Proper HTTP status codes and error handling
 - JSON API responses with appropriate serialization
 
+## Git Commit Rules
+- **Commit Title**: Use imperative, concise sentences (e.g., "Add user authentication", "Fix database migration")
+- **Commit Description**: Use concise bullet points without emojis or casual language
+- **No Claude Code Attribution**: Do not include "🤖 Generated with [Claude Code]" or similar attribution in commit messages
+
 ## Related Components
 - **Frontend**: React TypeScript application (separate repository)
 - **Shared**: Both frontend and backend use Docker for consistent development environments

@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import List, Optional
 from django.db.models import QuerySet
-from .models import Product, Category, ProductReview
+from .models import Product, Category, ProductReview, ProductDiscount
 
 
 class ProductRepositoryInterface(ABC):
@@ -53,6 +53,11 @@ class ProductRepositoryInterface(ABC):
     @abstractmethod
     def update_stock(self, product_id: int, new_stock: int) -> Product:
         """Update product stock quantity."""
+        pass
+    
+    @abstractmethod
+    def get_products_with_active_discounts(self, current_date) -> QuerySet:
+        """Get products that have active discounts at the current date."""
         pass
 
 
@@ -122,6 +127,48 @@ class ProductReviewRepositoryInterface(ABC):
     @abstractmethod
     def delete(self, review_id: int) -> bool:
         """Delete a review."""
+        pass
+
+
+class ProductDiscountRepositoryInterface(ABC):
+    """
+    Abstract base class for product discount data access operations.
+    Defines the contract for product discount repository implementations.
+    """
+    
+    @abstractmethod
+    def get_all(self) -> QuerySet:
+        """Get all product discounts."""
+        pass
+    
+    @abstractmethod
+    def get_by_id(self, discount_id: int) -> ProductDiscount:
+        """Get discount by ID."""
+        pass
+    
+    @abstractmethod
+    def get_active_discount_for_product(self, product_id: int, current_date) -> Optional[ProductDiscount]:
+        """Get active discount for a specific product at current date."""
+        pass
+    
+    @abstractmethod
+    def get_all_active_discounts(self, current_date) -> QuerySet:
+        """Get all active discounts at current date."""
+        pass
+    
+    @abstractmethod
+    def create(self, **kwargs) -> ProductDiscount:
+        """Create a new discount."""
+        pass
+    
+    @abstractmethod
+    def update(self, discount_id: int, **kwargs) -> ProductDiscount:
+        """Update an existing discount."""
+        pass
+    
+    @abstractmethod
+    def delete(self, discount_id: int) -> bool:
+        """Delete a discount."""
         pass
 
 
@@ -200,6 +247,14 @@ class ProductRepository(ProductRepositoryInterface):
             raise ValueError(f"Product with id {product_id} not found")
         except Exception as e:
             raise ValueError(f"Error updating product {product_id}: {str(e)}")
+    
+    def get_products_with_active_discounts(self, current_date) -> QuerySet:
+        """Get products that have active discounts at the current date."""
+        return Product.objects.filter(
+            discounts__is_active=True,
+            discounts__start_date__lte=current_date,
+            discounts__end_date__gte=current_date
+        ).distinct()
 
 
 class CategoryRepository(CategoryRepositoryInterface):
@@ -304,3 +359,73 @@ class ProductReviewRepository(ProductReviewRepositoryInterface):
             raise ValueError(f"Review with id {review_id} not found")
         except Exception as e:
             raise ValueError(f"Error deleting review {review_id}: {str(e)}")
+
+
+class ProductDiscountRepository(ProductDiscountRepositoryInterface):
+    """
+    Concrete implementation of ProductDiscountRepositoryInterface using Django ORM.
+    """
+    
+    def get_all(self) -> QuerySet:
+        """Get all product discounts."""
+        return ProductDiscount.objects.all()
+    
+    def get_by_id(self, discount_id: int) -> ProductDiscount:
+        """Get discount by ID."""
+        try:
+            return ProductDiscount.objects.get(id=discount_id)
+        except ProductDiscount.DoesNotExist:
+            raise ValueError(f"Discount with id {discount_id} not found")
+        except Exception as e:
+            raise ValueError(f"Error retrieving discount {discount_id}: {str(e)}")
+    
+    def get_active_discount_for_product(self, product_id: int, current_date) -> Optional[ProductDiscount]:
+        """Get active discount for a specific product at current date."""
+        try:
+            return ProductDiscount.objects.filter(
+                product_id=product_id,
+                is_active=True,
+                start_date__lte=current_date,
+                end_date__gte=current_date
+            ).order_by('-start_date').first()
+        except Exception as e:
+            return None
+    
+    def get_all_active_discounts(self, current_date) -> QuerySet:
+        """Get all active discounts at current date."""
+        return ProductDiscount.objects.filter(
+            is_active=True,
+            start_date__lte=current_date,
+            end_date__gte=current_date
+        )
+    
+    def create(self, **kwargs) -> ProductDiscount:
+        """Create a new discount."""
+        try:
+            return ProductDiscount.objects.create(**kwargs)
+        except Exception as e:
+            raise ValueError(f"Error creating discount: {str(e)}")
+    
+    def update(self, discount_id: int, **kwargs) -> ProductDiscount:
+        """Update an existing discount."""
+        try:
+            discount = ProductDiscount.objects.get(id=discount_id)
+            for key, value in kwargs.items():
+                setattr(discount, key, value)
+            discount.save()
+            return discount
+        except ProductDiscount.DoesNotExist:
+            raise ValueError(f"Discount with id {discount_id} not found")
+        except Exception as e:
+            raise ValueError(f"Error updating discount {discount_id}: {str(e)}")
+    
+    def delete(self, discount_id: int) -> bool:
+        """Delete a discount."""
+        try:
+            discount = ProductDiscount.objects.get(id=discount_id)
+            discount.delete()
+            return True
+        except ProductDiscount.DoesNotExist:
+            raise ValueError(f"Discount with id {discount_id} not found")
+        except Exception as e:
+            raise ValueError(f"Error deleting discount {discount_id}: {str(e)}")

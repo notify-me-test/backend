@@ -5,8 +5,10 @@ from django.test import TestCase
 from django.core.exceptions import ValidationError
 from unittest.mock import Mock, patch
 from decimal import Decimal
+from django.utils import timezone
+from datetime import timedelta
 from products.services import ProductService
-from products.models import Product
+from products.models import Product, ProductDiscount
 from products.services import CategoryService
 from products.services import ReviewService
 
@@ -177,6 +179,110 @@ class ProductServiceTest(TestCase):
         
         # Verify result is empty queryset
         self.assertEqual(result, mock_queryset.none())
+    
+    # Discount Calculation Tests
+    
+    def test_get_active_discount_for_product_found(self):
+        """Test getting active discount for a product when discount exists."""
+        # Mock discount repository
+        mock_discount_repository = Mock()
+        mock_discount = Mock()
+        mock_discount.discount_percentage = 20.00
+        mock_discount_repository.get_active_discount_for_product.return_value = mock_discount
+        
+        result = self.service._get_active_discount_for_product(1, mock_discount_repository)
+        
+        # Verify repository was called correctly
+        mock_discount_repository.get_active_discount_for_product.assert_called_once()
+        
+        # Verify result
+        self.assertEqual(result, mock_discount)
+    
+    def test_get_active_discount_for_product_not_found(self):
+        """Test getting active discount for a product when no discount exists."""
+        # Mock discount repository
+        mock_discount_repository = Mock()
+        mock_discount_repository.get_active_discount_for_product.return_value = None
+        
+        result = self.service._get_active_discount_for_product(1, mock_discount_repository)
+        
+        # Verify result
+        self.assertIsNone(result)
+    
+    def test_calculate_discounted_price(self):
+        """Test calculating discounted price."""
+        # Create mock product and discount
+        mock_product = Mock()
+        mock_product.price = Decimal('100.00')
+        
+        mock_discount = Mock()
+        mock_discount.discount_percentage = 20.00
+        
+        result = self.service._calculate_discounted_price(mock_product, mock_discount)
+        
+        # Verify calculation: 100 - (100 * 0.20) = 80
+        self.assertEqual(result, Decimal('80.00'))
+    
+    def test_calculate_discounted_price_no_discount(self):
+        """Test calculating discounted price when no discount."""
+        # Create mock product
+        mock_product = Mock()
+        mock_product.price = Decimal('100.00')
+        
+        result = self.service._calculate_discounted_price(mock_product, None)
+        
+        # Verify original price is returned
+        self.assertEqual(result, Decimal('100.00'))
+    
+    def test_get_product_with_discount_price_with_discount(self):
+        """Test getting product with discount price calculation."""
+        # Mock product
+        mock_product = Mock()
+        mock_product.id = 1
+        mock_product.price = Decimal('100.00')
+        self.product_repository.get_by_id.return_value = mock_product
+        
+        # Mock discount repository and active discount
+        mock_discount_repository = Mock()
+        mock_discount = Mock()
+        mock_discount.discount_percentage = 25.00
+        
+        # Mock service methods
+        with patch.object(self.service, '_get_active_discount_for_product', return_value=mock_discount):
+            with patch.object(self.service, '_calculate_discounted_price', return_value=Decimal('75.00')) as mock_calc:
+                result = self.service.get_product_with_discount_price(1, mock_discount_repository)
+                
+                # Verify method calls
+                mock_calc.assert_called_once_with(mock_product, mock_discount)
+                
+                # Verify result has discount information
+                self.assertEqual(result.discounted_price, Decimal('75.00'))
+                self.assertEqual(result.has_active_discount, True)
+                self.assertEqual(result.discount_percentage, 25.00)
+    
+    def test_get_product_with_discount_price_no_discount(self):
+        """Test getting product with discount price when no discount exists."""
+        # Mock product
+        mock_product = Mock()
+        mock_product.id = 1
+        mock_product.price = Decimal('100.00')
+        self.product_repository.get_by_id.return_value = mock_product
+        
+        # Mock discount repository with no active discount
+        mock_discount_repository = Mock()
+        
+        # Mock service methods
+        with patch.object(self.service, '_get_active_discount_for_product', return_value=None):
+            with patch.object(self.service, '_calculate_discounted_price', return_value=Decimal('100.00')) as mock_calc:
+                result = self.service.get_product_with_discount_price(1, mock_discount_repository)
+                
+                # Verify method calls
+                mock_calc.assert_called_once_with(mock_product, None)
+                
+                # Verify result has no discount information
+                self.assertEqual(result.discounted_price, Decimal('100.00'))
+                self.assertEqual(result.has_active_discount, False)
+                self.assertEqual(result.discount_percentage, 0)
 
 
 class CategoryServiceTest(TestCase):
